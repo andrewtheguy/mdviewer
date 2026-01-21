@@ -1,5 +1,6 @@
 import { serve } from "bun";
 import index from "./index.html";
+import { s3 } from "./lib/s3";
 
 const server = serve({
   routes: {
@@ -26,6 +27,98 @@ const server = serve({
       return Response.json({
         message: `Hello, ${name}!`,
       });
+    },
+
+    // S3 API Routes
+    "/api/s3/list": {
+      async GET(req) {
+        try {
+          const result = await s3.list();
+          const objects = (result.contents || []).map((obj) => ({
+            key: obj.key,
+            size: obj.size || 0,
+            lastModified: obj.lastModified || new Date().toISOString(),
+          }));
+          return Response.json({ objects });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to list objects" },
+            { status: 500 }
+          );
+        }
+      },
+    },
+
+    "/api/s3/upload": {
+      async POST(req) {
+        try {
+          const formData = await req.formData();
+          const file = formData.get("file") as File | null;
+
+          if (!file) {
+            return Response.json({ error: "No file provided" }, { status: 400 });
+          }
+
+          const key = file.name;
+          const arrayBuffer = await file.arrayBuffer();
+          await s3.write(key, arrayBuffer);
+
+          return Response.json({
+            success: true,
+            key,
+            size: file.size,
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to upload file" },
+            { status: 500 }
+          );
+        }
+      },
+    },
+
+    "/api/s3/download/:key": {
+      async GET(req) {
+        try {
+          const key = decodeURIComponent(req.params.key);
+          const s3File = s3.file(key);
+          const exists = await s3File.exists();
+
+          if (!exists) {
+            return Response.json({ error: "File not found" }, { status: 404 });
+          }
+
+          const data = await s3File.arrayBuffer();
+          const contentType = s3File.type || "application/octet-stream";
+
+          return new Response(data, {
+            headers: {
+              "Content-Type": contentType,
+              "Content-Disposition": `attachment; filename="${key}"`,
+            },
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to download file" },
+            { status: 500 }
+          );
+        }
+      },
+    },
+
+    "/api/s3/delete/:key": {
+      async DELETE(req) {
+        try {
+          const key = decodeURIComponent(req.params.key);
+          await s3.delete(key);
+          return Response.json({ success: true, key });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to delete file" },
+            { status: 500 }
+          );
+        }
+      },
     },
   },
 
