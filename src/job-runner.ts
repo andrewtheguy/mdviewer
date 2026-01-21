@@ -1,0 +1,249 @@
+import { serve } from "bun";
+import { s3 } from "./lib/s3";
+import { getIndex, keyToId, type S3FileDocument } from "./lib/meilisearch";
+
+// Global error handlers to prevent silent crashes
+process.on("uncaughtException", (error) => {
+  console.error("[JobRunner] Uncaught exception:", error);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[JobRunner] Unhandled rejection at:", promise, "reason:", reason);
+});
+
+const PORT = process.env.JOB_RUNNER_PORT || 3001;
+
+const INDEXABLE_EXTENSIONS = ["txt", "md"];
+const CONTENT_PREVIEW_LENGTH = 500;
+const DOWNLOAD_BATCH_SIZE = 20;
+const INDEX_BATCH_SIZE = 100;
+const S3_FETCH_TIMEOUT_MS = 30000; // 30 seconds per file
+const MEILISEARCH_TIMEOUT_MS = 60000; // 60 seconds for batch indexing
+
+// In-memory status
+interface ReindexStatus {
+  running: boolean;
+  progress: {
+    current: number;
+    total: number;
+  };
+  lastResult: {
+    success: boolean;
+    total: number;
+    indexed: number;
+    skipped: number;
+    errors: number;
+    completedAt: string;
+  } | null;
+}
+
+let status: ReindexStatus = {
+  running: false,
+  progress: { current: 0, total: 0 },
+  lastResult: null,
+};
+
+function isIndexable(key: string): boolean {
+  const ext = key.toLowerCase().split(".").pop();
+  return ext ? INDEXABLE_EXTENSIONS.includes(ext) : false;
+}
+
+function getExtension(key: string): string {
+  return key.toLowerCase().split(".").pop() || "";
+}
+
+function getBasename(key: string): string {
+  return key.split("/").pop() || key;
+}
+
+function getPath(key: string): string {
+  const parts = key.split("/");
+  if (parts.length <= 1) return "";
+  return parts.slice(0, -1).join("/");
+}
+
+// Timeout wrapper for async operations
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms)
+    ),
+  ]);
+}
+
+async function runReindex() {
+  const result = {
+    total: 0,
+    indexed: 0,
+    skipped: 0,
+    errors: 0,
+  };
+
+  try {
+    console.log("[JobRunner] Getting index...");
+    const index = await getIndex();
+
+    console.log("[JobRunner] Deleting all documents...");
+    await index.deleteAllDocuments();
+
+    console.log("[JobRunner] Listing S3 files...");
+    const listResult = await s3.list();
+    const objects = listResult.contents || [];
+
+    result.total = objects.length;
+    status.progress.total = objects.length;
+
+    const indexableObjects = objects.filter(
+      (obj) => obj.key && isIndexable(obj.key)
+    );
+    result.skipped = objects.length - indexableObjects.length;
+    console.log(
+      `[JobRunner] Found ${objects.length} total files, ${indexableObjects.length} indexable`
+    );
+
+    let pendingDocuments: S3FileDocument[] = [];
+    let processed = 0;
+
+    for (let i = 0; i < indexableObjects.length; i += DOWNLOAD_BATCH_SIZE) {
+      const batch = indexableObjects.slice(i, i + DOWNLOAD_BATCH_SIZE);
+
+      const batchResults = await Promise.allSettled(
+        batch.map(async (obj) => {
+          const key = obj.key!;
+          const content = await withTimeout(
+            s3.file(key).text(),
+            S3_FETCH_TIMEOUT_MS,
+            `fetch ${key}`
+          );
+          const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
+          const lastModified = obj.lastModified
+            ? new Date(obj.lastModified)
+            : new Date();
+
+          return {
+            id: keyToId(key),
+            key,
+            name: getBasename(key),
+            extension: getExtension(key),
+            path: getPath(key),
+            size: obj.size || 0,
+            lastModified: lastModified.getTime(),
+            lastModifiedISO: lastModified.toISOString(),
+            content,
+            contentPreview,
+          } as S3FileDocument;
+        })
+      );
+
+      for (const [idx, res] of batchResults.entries()) {
+        if (res.status === "fulfilled") {
+          pendingDocuments.push(res.value);
+        } else {
+          const failedKey = batch[idx]?.key || "unknown";
+          console.error(`[JobRunner] Failed to fetch "${failedKey}":`, res.reason);
+          result.errors++;
+        }
+      }
+
+      if (pendingDocuments.length >= INDEX_BATCH_SIZE) {
+        try {
+          await withTimeout(
+            index.addDocuments(pendingDocuments),
+            MEILISEARCH_TIMEOUT_MS,
+            "addDocuments"
+          );
+          result.indexed += pendingDocuments.length;
+        } catch (err) {
+          console.error("[JobRunner] Failed to add batch to Meilisearch:", err);
+          result.errors += pendingDocuments.length;
+        }
+        pendingDocuments = [];
+      }
+
+      processed += batch.length;
+      status.progress.current = processed;
+      console.log(
+        `[JobRunner] Processed ${processed}/${indexableObjects.length} files (indexed: ${result.indexed})...`
+      );
+    }
+
+    if (pendingDocuments.length > 0) {
+      console.log(`[JobRunner] Adding final ${pendingDocuments.length} documents...`);
+      try {
+        await withTimeout(
+          index.addDocuments(pendingDocuments),
+          MEILISEARCH_TIMEOUT_MS,
+          "addDocuments (final)"
+        );
+        result.indexed += pendingDocuments.length;
+      } catch (err) {
+        console.error("[JobRunner] Failed to add final batch to Meilisearch:", err);
+        result.errors += pendingDocuments.length;
+      }
+    }
+
+    console.log("[JobRunner] Reindex completed successfully!", result);
+    status.lastResult = {
+      success: true,
+      ...result,
+      completedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("[JobRunner] Reindex error:", error);
+    status.lastResult = {
+      success: false,
+      ...result,
+      completedAt: new Date().toISOString(),
+    };
+  } finally {
+    status.running = false;
+    status.progress = { current: 0, total: 0 };
+  }
+}
+
+const server = serve({
+  port: PORT,
+  routes: {
+    "/reindex": {
+      POST() {
+        if (status.running) {
+          return Response.json(
+            { error: "Reindex already in progress" },
+            { status: 409 }
+          );
+        }
+
+        status.running = true;
+        status.progress = { current: 0, total: 0 };
+
+        // Run reindex in background (don't await)
+        runReindex().catch((err) => {
+          console.error("[JobRunner] Unexpected error in runReindex:", err);
+          status.running = false;
+          status.lastResult = {
+            success: false,
+            total: 0,
+            indexed: 0,
+            skipped: 0,
+            errors: 1,
+            completedAt: new Date().toISOString(),
+          };
+        });
+
+        return Response.json({
+          success: true,
+          message: "Reindex started",
+        });
+      },
+    },
+
+    "/status": {
+      GET() {
+        return Response.json(status);
+      },
+    },
+  },
+});
+
+console.log(`[JobRunner] Running on http://localhost:${server.port}`);

@@ -9,8 +9,7 @@ function decodeKey(encoded: string): string {
   return Buffer.from(encoded, "base64url").toString("utf-8");
 }
 
-// Track reindex status
-let reindexProcess: { running: boolean; pid?: number } = { running: false };
+const JOB_RUNNER_URL = process.env.JOB_RUNNER_URL || "http://localhost:3001";
 
 const server = serve({
   routes: {
@@ -205,38 +204,33 @@ const server = serve({
 
     "/api/search/reindex": {
       async POST() {
-        if (reindexProcess.running) {
+        try {
+          const response = await fetch(`${JOB_RUNNER_URL}/reindex`, {
+            method: "POST",
+          });
+          const data = await response.json();
+          return Response.json(data, { status: response.status });
+        } catch (error) {
           return Response.json(
-            { error: "Reindex already in progress" },
-            { status: 409 }
+            { error: "Job runner unavailable" },
+            { status: 503 }
           );
         }
-
-        // Spawn a separate process for reindexing
-        console.log("[Reindex] Spawning worker process...");
-        const proc = Bun.spawn(["bun", "run", "src/lib/reindex-worker.ts"], {
-          stdout: "inherit",
-          stderr: "inherit",
-        });
-
-        reindexProcess = { running: true, pid: proc.pid };
-
-        // Track when it exits
-        proc.exited.then((code) => {
-          console.log(`[Reindex] Worker exited with code ${code}`);
-          reindexProcess = { running: false };
-        });
-
-        return Response.json({
-          success: true,
-          message: "Reindex started in separate process",
-        });
       },
     },
 
     "/api/search/reindex/status": {
-      GET() {
-        return Response.json({ running: reindexProcess.running });
+      async GET() {
+        try {
+          const response = await fetch(`${JOB_RUNNER_URL}/status`);
+          const data = await response.json();
+          return Response.json(data);
+        } catch (error) {
+          return Response.json(
+            { running: false, error: "Job runner unavailable" },
+            { status: 503 }
+          );
+        }
       },
     },
 
