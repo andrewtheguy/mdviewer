@@ -116,6 +116,27 @@ export function S3FileManager() {
   // Reindex state
   const [isReindexing, setIsReindexing] = useState(false);
 
+  // Check reindex status on mount and poll while reindexing
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch("/api/search/reindex/status");
+        const data = await response.json();
+        setIsReindexing(data.running);
+      } catch {
+        // Ignore errors
+      }
+    };
+
+    checkStatus();
+
+    // Poll while reindexing
+    if (isReindexing) {
+      const interval = setInterval(checkStatus, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isReindexing]);
+
   const isPreviewable = (key: string): boolean => {
     const ext = key.toLowerCase().split(".").pop();
     return ext === "txt" || ext === "md";
@@ -148,32 +169,20 @@ export function S3FileManager() {
   }, [fetchObjects]);
 
   const handleReindex = useCallback(async () => {
-    setIsReindexing(true);
     setError(null);
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
-
-      const response = await fetch("/api/search/reindex", {
-        method: "POST",
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
+      const response = await fetch("/api/search/reindex", { method: "POST" });
+      const data = await response.json();
 
       if (!response.ok) {
-        const data = await response.json();
         setError(data.error || `Reindex failed with status ${response.status}`);
         return;
       }
-      // Reindex succeeded - no need to show anything
+
+      // Started successfully - polling will track progress
+      setIsReindexing(true);
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        setError("Reindex timed out - try again or check server logs");
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to reindex");
-      }
-    } finally {
-      setIsReindexing(false);
+      setError(err instanceof Error ? err.message : "Failed to reindex");
     }
   }, []);
 

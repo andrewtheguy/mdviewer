@@ -9,6 +9,9 @@ function decodeKey(encoded: string): string {
   return Buffer.from(encoded, "base64url").toString("utf-8");
 }
 
+// Track reindex status
+let reindexProcess: { running: boolean; pid?: number } = { running: false };
+
 const server = serve({
   routes: {
     // Serve index.html for all unmatched routes.
@@ -202,6 +205,13 @@ const server = serve({
 
     "/api/search/reindex": {
       async POST() {
+        if (reindexProcess.running) {
+          return Response.json(
+            { error: "Reindex already in progress" },
+            { status: 409 }
+          );
+        }
+
         // Spawn a separate process for reindexing
         console.log("[Reindex] Spawning worker process...");
         const proc = Bun.spawn(["bun", "run", "src/lib/reindex-worker.ts"], {
@@ -209,15 +219,24 @@ const server = serve({
           stderr: "inherit",
         });
 
-        // Don't await - let it run in background
+        reindexProcess = { running: true, pid: proc.pid };
+
+        // Track when it exits
         proc.exited.then((code) => {
           console.log(`[Reindex] Worker exited with code ${code}`);
+          reindexProcess = { running: false };
         });
 
         return Response.json({
           success: true,
           message: "Reindex started in separate process",
         });
+      },
+    },
+
+    "/api/search/reindex/status": {
+      GET() {
+        return Response.json({ running: reindexProcess.running });
       },
     },
 
