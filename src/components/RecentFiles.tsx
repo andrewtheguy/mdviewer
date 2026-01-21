@@ -1,15 +1,12 @@
 import { Button } from "@/components/ui/button";
 
 export interface RecentFile {
-  id: string;
   key: string;
   name: string;
-  extension: string;
   path: string;
   size: number;
   lastModified: number;
   lastModifiedISO: string;
-  contentPreview: string;
 }
 
 interface RecentFilesProps {
@@ -104,7 +101,7 @@ export function RecentFiles({
             {files.map((file) => {
               return (
                 <tr
-                  key={file.id}
+                  key={file.key}
                   className="border-t hover:bg-muted/30 cursor-pointer"
                   onClick={() => onPreview(file.key)}
                 >

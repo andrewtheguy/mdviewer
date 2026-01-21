@@ -248,7 +248,7 @@ const server = serve({
       },
     },
 
-    // Recent files endpoint - returns recently updated .txt and .md files
+    // Recent files endpoint - returns recently updated .txt and .md files directly from S3
     "/api/s3/recent": {
       async GET(req) {
         try {
@@ -256,16 +256,40 @@ const server = serve({
           const limit = parseInt(url.searchParams.get("limit") || "50", 10);
           const offset = parseInt(url.searchParams.get("offset") || "0", 10);
 
-          const searchIndex = await getIndex();
-          const results = await searchIndex.search("", {
-            limit,
-            offset,
-            sort: ["lastModified:desc"],
+          // Fetch all files from S3
+          const result = await s3.list();
+          const allObjects = result.contents || [];
+
+          // Filter for .txt and .md files only
+          const textFiles = allObjects.filter((obj) => {
+            if (!obj.key) return false;
+            const ext = obj.key.toLowerCase().split(".").pop();
+            return ext === "txt" || ext === "md";
           });
 
+          // Sort by lastModified descending (most recent first)
+          textFiles.sort((a, b) => {
+            const dateA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
+            const dateB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
+            return dateB - dateA;
+          });
+
+          // Apply pagination
+          const paginatedFiles = textFiles.slice(offset, offset + limit);
+
+          // Map to response format
+          const files = paginatedFiles.map((obj) => ({
+            key: obj.key,
+            name: obj.key?.split("/").pop() || obj.key,
+            path: obj.key?.split("/").slice(0, -1).join("/") || "",
+            size: obj.size || 0,
+            lastModified: obj.lastModified ? new Date(obj.lastModified).getTime() : 0,
+            lastModifiedISO: obj.lastModified || new Date().toISOString(),
+          }));
+
           return Response.json({
-            files: results.hits,
-            totalFiles: results.estimatedTotalHits || results.hits.length,
+            files,
+            totalFiles: textFiles.length,
           });
         } catch (error) {
           return Response.json(
