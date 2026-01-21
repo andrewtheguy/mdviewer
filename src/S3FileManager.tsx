@@ -80,7 +80,6 @@ export function S3FileManager() {
   const [objects, setObjects] = useState<S3Object[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [currentPath, setCurrentPath] = useState<string>(getFolderPathFromURL);
@@ -162,6 +161,10 @@ export function S3FileManager() {
   };
 
   const handleDelete = async (key: string) => {
+    if (!window.confirm(`Are you sure you want to delete "${getFileName(key)}"?`)) {
+      return;
+    }
+
     try {
       const response = await fetch(`/api/s3/delete?key=${encodeKey(key)}`, {
         method: "DELETE",
@@ -175,8 +178,6 @@ export function S3FileManager() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete file");
-    } finally {
-      setDeleteConfirm(null);
     }
   };
 
@@ -498,50 +499,29 @@ export function S3FileManager() {
                     className="p-3 text-right space-x-2"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {deleteConfirm === obj.key ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleDelete(obj.key)}
-                        >
-                          Confirm
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setDeleteConfirm(null)}
-                        >
-                          Cancel
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        {isPreviewable(obj.key) && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handlePreview(obj.key)}
-                          >
-                            Preview
-                          </Button>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleDownload(obj.key)}
-                        >
-                          Download
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => setDeleteConfirm(obj.key)}
-                        >
-                          Delete
-                        </Button>
-                      </>
+                    {isPreviewable(obj.key) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handlePreview(obj.key)}
+                      >
+                        Preview
+                      </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDownload(obj.key)}
+                    >
+                      Download
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleDelete(obj.key)}
+                    >
+                      Delete
+                    </Button>
                   </td>
                 </tr>
               ))}
