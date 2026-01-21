@@ -417,22 +417,25 @@ export function S3FileManager() {
             <tbody>
               {/* Parent folder navigation */}
               {currentPath && (
-                <tr className="border-t hover:bg-muted/30">
+                <tr 
+                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  onClick={() => {
+                    const parentPath = currentPath.split("/").slice(0, -1).join("/");
+                    navigateToFolder(parentPath);
+                  }}
+                >
                   <td className="p-3">
-                    <button
-                      onClick={() => {
-                        const parentPath = currentPath.split("/").slice(0, -1).join("/");
-                        navigateToFolder(parentPath);
-                      }}
-                      className="flex items-center gap-2 hover:text-primary"
-                    >
+                    <div className="flex items-center gap-2">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                       </svg>
                       <span>..</span>
-                    </button>
+                    </div>
                   </td>
-                  <td className="p-3 text-right">
+                  <td 
+                    className="p-3 text-right"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <Button
                       size="sm"
                       variant="ghost"
@@ -449,17 +452,18 @@ export function S3FileManager() {
 
               {/* Folders */}
               {folders.map((folder) => (
-                <tr key={folder} className="border-t hover:bg-muted/30">
+                <tr 
+                  key={folder} 
+                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  onClick={() => navigateToFolder(currentPath ? `${currentPath}/${folder}` : folder)}
+                >
                   <td className="p-3">
-                    <button
-                      onClick={() => navigateToFolder(currentPath ? `${currentPath}/${folder}` : folder)}
-                      className="flex items-center gap-2 hover:text-primary"
-                    >
+                    <div className="flex items-center gap-2">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                       </svg>
                       <span className="break-all">{folder}</span>
-                    </button>
+                    </div>
                   </td>
                   <td className="p-3 text-right text-muted-foreground">
                     -
@@ -469,7 +473,15 @@ export function S3FileManager() {
 
               {/* Files */}
               {files.map((obj) => (
-                <tr key={obj.key} className="border-t hover:bg-muted/30">
+                <tr 
+                  key={obj.key} 
+                  className={`border-t hover:bg-muted/30 ${isPreviewable(obj.key) ? 'cursor-pointer' : ''}`}
+                  onClick={() => {
+                    if (isPreviewable(obj.key)) {
+                      handlePreview(obj.key);
+                    }
+                  }}
+                >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -482,7 +494,10 @@ export function S3FileManager() {
                       </span>
                     </div>
                   </td>
-                  <td className="p-3 text-right space-x-2">
+                  <td 
+                    className="p-3 text-right space-x-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {deleteConfirm === obj.key ? (
                       <>
                         <Button

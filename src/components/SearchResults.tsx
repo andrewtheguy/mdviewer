@@ -74,71 +74,88 @@ export function SearchResults({
             </tr>
           </thead>
           <tbody>
-            {hits.map((hit) => (
-              <tr key={hit.id} className="border-t hover:bg-muted/30">
-                <td className="p-3">
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-2">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                      {hit._formatted?.name ? (
-                        <HighlightedText html={hit._formatted.name} />
-                      ) : (
-                        <span className="break-all">{hit.name}</span>
+            {hits.map((hit) => {
+              const isPreviewable = hit.extension === 'txt' || hit.extension === 'md';
+              return (
+                <tr 
+                  key={hit.id} 
+                  className={`border-t hover:bg-muted/30 ${isPreviewable ? 'cursor-pointer' : ''}`}
+                  onClick={() => {
+                    if (isPreviewable) {
+                      onPreview(hit.key);
+                    }
+                  }}
+                >
+                  <td className="p-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                        {hit._formatted?.name ? (
+                          <HighlightedText html={hit._formatted.name} />
+                        ) : (
+                          <span className="break-all">{hit.name}</span>
+                        )}
+                        <span className="text-muted-foreground text-xs whitespace-nowrap">
+                          ({formatBytes(hit.size)})
+                        </span>
+                      </div>
+                      {hit.path && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigateToFolder(hit.path);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left"
+                        >
+                          /{hit.path}
+                        </button>
                       )}
-                      <span className="text-muted-foreground text-xs whitespace-nowrap">
-                        ({formatBytes(hit.size)})
-                      </span>
                     </div>
-                    {hit.path && (
-                      <button
-                        onClick={() => onNavigateToFolder(hit.path)}
-                        className="text-xs text-muted-foreground hover:text-primary hover:underline text-left"
-                      >
-                        /{hit.path}
-                      </button>
-                    )}
-                  </div>
-                </td>
-                <td className="p-3">
-                  <div className="text-sm text-muted-foreground line-clamp-2 max-w-md">
-                    {hit._formatted?.content ? (
-                      <HighlightedText html={hit._formatted.content} />
-                    ) : (
-                      hit.contentPreview
-                    )}
-                  </div>
-                </td>
-                <td className="p-3 text-right space-x-2 whitespace-nowrap">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onPreview(hit.key)}
+                  </td>
+                  <td className="p-3">
+                    <div className="text-sm text-muted-foreground line-clamp-2 max-w-md">
+                      {hit._formatted?.content ? (
+                        <HighlightedText html={hit._formatted.content} />
+                      ) : (
+                        hit.contentPreview
+                      )}
+                    </div>
+                  </td>
+                  <td 
+                    className="p-3 text-right space-x-2 whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    Preview
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => onDownload(hit.key)}
-                  >
-                    Download
-                  </Button>
-                </td>
-              </tr>
-            ))}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onPreview(hit.key)}
+                    >
+                      Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onDownload(hit.key)}
+                    >
+                      Download
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
