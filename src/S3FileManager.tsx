@@ -29,6 +29,17 @@ function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleString();
 }
 
+// Decode base64 URL-safe key
+function decodeKey(encoded: string): string {
+  let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
+  while (base64.length % 4) {
+    base64 += "=";
+  }
+  const binaryStr = atob(base64);
+  const bytes = Uint8Array.from(binaryStr, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 export function S3FileManager() {
   const [objects, setObjects] = useState<S3Object[]>([]);
   const [loading, setLoading] = useState(false);
@@ -36,10 +47,24 @@ export function S3FileManager() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get preview key from URL
+  const getPreviewKeyFromURL = (): string | null => {
+    const match = window.location.pathname.match(/^\/preview\/(.+)$/);
+    if (match && match[1]) {
+      try {
+        return decodeKey(match[1]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  };
+
+  const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
 
   const isPreviewable = (key: string): boolean => {
     const ext = key.toLowerCase().split(".").pop();
@@ -160,32 +185,58 @@ export function S3FileManager() {
     handleUpload(e.dataTransfer.files);
   };
 
-  const handlePreview = async (key: string) => {
+  const closePreview = useCallback(() => {
+    window.history.pushState({}, "", "/");
+    setPreviewFile(null);
+    setPreviewContent("");
+    setPreviewLoading(false);
+  }, []);
+
+  const handlePreview = (key: string) => {
+    const encoded = encodeKey(key);
+    window.history.pushState({}, "", `/preview/${encoded}`);
     setPreviewFile(key);
+  };
+
+  const loadPreviewContent = useCallback(async (key: string) => {
     setPreviewLoading(true);
     setPreviewContent("");
+    setError(null);
     try {
       const response = await fetch(`/api/s3/preview?key=${encodeKey(key)}`);
       if (!response.ok) {
         const data = await response.json();
-        setError(data.error || "Failed to preview file");
-        setPreviewFile(null);
+        setPreviewContent(`Error: ${data.error || "Failed to preview file"}`);
         return;
       }
       const content = await response.text();
       setPreviewContent(content);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to preview file");
-      setPreviewFile(null);
+      setPreviewContent(`Error: ${err instanceof Error ? err.message : "Failed to preview file"}`);
     } finally {
       setPreviewLoading(false);
     }
-  };
+  }, []);
 
-  const closePreview = () => {
-    setPreviewFile(null);
-    setPreviewContent("");
-  };
+  // Handle browser back/forward
+  useEffect(() => {
+    const handlePopState = () => {
+      const key = getPreviewKeyFromURL();
+      setPreviewFile(key);
+      if (!key) {
+        setPreviewContent("");
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Load content when preview file changes
+  useEffect(() => {
+    if (previewFile) {
+      loadPreviewContent(previewFile);
+    }
+  }, [previewFile, loadPreviewContent]);
 
   // Full-screen preview view
   if (previewFile) {
