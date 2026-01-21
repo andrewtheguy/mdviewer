@@ -75,16 +75,10 @@ export function SearchResults({
           </thead>
           <tbody>
             {hits.map((hit) => {
-              const isPreviewable = hit.extension === 'txt' || hit.extension === 'md';
               return (
-                <tr 
-                  key={hit.id} 
-                  className={`border-t hover:bg-muted/30 ${isPreviewable ? 'cursor-pointer' : ''}`}
-                  onClick={() => {
-                    if (isPreviewable) {
-                      onPreview(hit.key);
-                    }
-                  }}
+                <tr
+                  key={hit.id}
+                  className="border-t hover:bg-muted/30"
                 >
                   <td className="p-3">
                     <div className="flex flex-col gap-1">
@@ -114,10 +108,7 @@ export function SearchResults({
                       </div>
                       {hit.path && (
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onNavigateToFolder(hit.path);
-                          }}
+                          onClick={() => onNavigateToFolder(hit.path)}
                           className="text-xs text-muted-foreground hover:text-primary hover:underline text-left"
                         >
                           /{hit.path}
@@ -134,10 +125,7 @@ export function SearchResults({
                       )}
                     </div>
                   </td>
-                  <td 
-                    className="p-3 text-right space-x-2 whitespace-nowrap"
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <td className="p-3 text-right space-x-2 whitespace-nowrap">
                     <Button
                       size="sm"
                       variant="outline"
