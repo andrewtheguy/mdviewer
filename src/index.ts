@@ -179,6 +179,8 @@ const server = serve({
             limit,
             offset,
             attributesToHighlight: ["name", "content"],
+            attributesToCrop: ["content"],
+            cropLength: 200,
             highlightPreTag: "<mark>",
             highlightPostTag: "</mark>",
           });

@@ -126,7 +126,7 @@ export function SearchResults({
                     </div>
                   </td>
                   <td className="p-3">
-                    <div className="text-sm text-muted-foreground line-clamp-2 max-w-md">
+                    <div className="text-sm text-muted-foreground">
                       {hit._formatted?.content ? (
                         <HighlightedText html={hit._formatted.content} />
                       ) : (

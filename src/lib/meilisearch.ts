@@ -33,9 +33,28 @@ export function idToKey(id: string): string {
 }
 
 let cachedIndex: Index<S3FileDocument> | null = null;
+let settingsUpdated = false;
+
+const INDEX_SETTINGS = {
+  searchableAttributes: ["name", "content", "path", "key"],
+  filterableAttributes: ["extension", "path"],
+  sortableAttributes: ["lastModified", "size", "name"],
+  displayedAttributes: [
+    "id",
+    "key",
+    "name",
+    "extension",
+    "path",
+    "size",
+    "lastModified",
+    "lastModifiedISO",
+    "content",
+    "contentPreview",
+  ],
+};
 
 export async function getIndex(): Promise<Index<S3FileDocument>> {
-  if (cachedIndex) {
+  if (cachedIndex && settingsUpdated) {
     return cachedIndex;
   }
 
@@ -47,24 +66,12 @@ export async function getIndex(): Promise<Index<S3FileDocument>> {
     // Create index if it doesn't exist
     await meiliClient.createIndex(indexName, { primaryKey: "id" });
     cachedIndex = meiliClient.index<S3FileDocument>(indexName);
+  }
 
-    // Configure searchable and filterable attributes
-    await cachedIndex.updateSettings({
-      searchableAttributes: ["name", "content", "path", "key"],
-      filterableAttributes: ["extension", "path"],
-      sortableAttributes: ["lastModified", "size", "name"],
-      displayedAttributes: [
-        "id",
-        "key",
-        "name",
-        "extension",
-        "path",
-        "size",
-        "lastModified",
-        "lastModifiedISO",
-        "contentPreview",
-      ],
-    });
+  // Always ensure settings are up to date
+  if (!settingsUpdated) {
+    await cachedIndex.updateSettings(INDEX_SETTINGS);
+    settingsUpdated = true;
   }
 
   return cachedIndex;
