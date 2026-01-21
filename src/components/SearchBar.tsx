@@ -18,6 +18,11 @@ export function SearchBar({
   const [query, setQuery] = useState(initialQuery);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Sync with external query changes (e.g., from back/forward navigation)
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
+
   const debouncedSearch = useCallback(
     (value: string) => {
       if (debounceRef.current) {

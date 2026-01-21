@@ -55,6 +55,12 @@ function getFolderPathFromURL(): string {
   return "";
 }
 
+// Get search query from URL
+function getSearchQueryFromURL(): string {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("q") || "";
+}
+
 // Process flat S3 keys into folder/file structure at a given path
 function getItemsAtPath(objects: S3Object[], path: string) {
   const prefix = path ? path + "/" : "";
@@ -100,11 +106,12 @@ export function S3FileManager() {
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
 
   // Search state
-  const [searchQuery, setSearchQuery] = useState("");
+  const initialSearchQuery = getSearchQueryFromURL();
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
   const [searchTotalHits, setSearchTotalHits] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
-  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(!!initialSearchQuery);
 
   const isPreviewable = (key: string): boolean => {
     const ext = key.toLowerCase().split(".").pop();
@@ -229,14 +236,26 @@ export function S3FileManager() {
   }, []);
 
   // Search handlers
-  const handleSearch = useCallback(async (query: string) => {
+  const handleSearch = useCallback(async (query: string, updateUrl = true) => {
     setSearchQuery(query);
 
     if (!query.trim()) {
       setIsSearchMode(false);
       setSearchResults([]);
       setSearchTotalHits(0);
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("q");
+        window.history.pushState({}, "", url.pathname);
+      }
       return;
+    }
+
+    // Update URL with search query
+    if (updateUrl) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("q", query);
+      window.history.pushState({}, "", `${url.pathname}${url.search}`);
     }
 
     setIsSearchMode(true);
@@ -268,6 +287,10 @@ export function S3FileManager() {
     setSearchResults([]);
     setSearchTotalHits(0);
     setIsSearchMode(false);
+    // Clear URL query param
+    const url = new URL(window.location.href);
+    url.searchParams.delete("q");
+    window.history.pushState({}, "", url.pathname);
   }, []);
 
   const handleNavigateToFolderFromSearch = useCallback((path: string) => {
@@ -275,10 +298,20 @@ export function S3FileManager() {
     navigateToFolder(path);
   }, [handleClearSearch]);
 
+  // Trigger search on initial load if query in URL
+  useEffect(() => {
+    const initialQuery = getSearchQueryFromURL();
+    if (initialQuery) {
+      handleSearch(initialQuery, false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Handle browser back/forward
   useEffect(() => {
     const handlePopState = () => {
       const previewKey = getPreviewKeyFromURL();
+      const urlQuery = getSearchQueryFromURL();
+
       if (previewKey) {
         setPreviewFile(previewKey);
       } else {
@@ -286,10 +319,22 @@ export function S3FileManager() {
         setPreviewContent("");
         setCurrentPath(getFolderPathFromURL());
       }
+
+      // Handle search query changes from back/forward
+      if (urlQuery !== searchQuery) {
+        if (urlQuery) {
+          handleSearch(urlQuery, false);
+        } else {
+          setSearchQuery("");
+          setSearchResults([]);
+          setSearchTotalHits(0);
+          setIsSearchMode(false);
+        }
+      }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
+  }, [searchQuery, handleSearch]);
 
   // Load content when preview file changes
   useEffect(() => {
