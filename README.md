@@ -2,7 +2,8 @@
 
 A web-based markdown viewer with S3 storage and full-text search powered by Meilisearch. Built with Bun, React, and Tailwind CSS.
 
-> **Note**: This application is designed for self-hosted S3-compatible storage like [Garage](https://garagehq.deuxfleurs.fr/) or [Ceph](https://ceph.io/). It makes frequent API calls to list and fetch files, which may incur significant costs on commercial cloud providers like AWS S3.
+> [!IMPORTANT]
+> This application is designed for self-hosted S3-compatible storage like [Garage](https://garagehq.deuxfleurs.fr/) or [Ceph](https://ceph.io/). It makes frequent API calls to list and fetch files, which may incur significant costs on commercial cloud providers like AWS S3.
 
 ## Features
 
