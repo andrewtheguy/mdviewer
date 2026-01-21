@@ -1,9 +1,72 @@
-import { S3Client } from "bun";
+import {
+  S3Client,
+  ListObjectsV2Command,
+  GetObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
 
-export const s3 = new S3Client({
-  accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-  secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
-  bucket: process.env.S3_BUCKET!,
-  endpoint: process.env.S3_ENDPOINT!,
-  region: process.env.S3_REGION,
+const endpoint = process.env.S3_ENDPOINT!;
+const bucket = process.env.S3_BUCKET!;
+
+const client = new S3Client({
+  endpoint: endpoint.startsWith("http") ? endpoint : "https://" + endpoint,
+  region: process.env.S3_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
+  },
+  forcePathStyle: true,
 });
+
+export const s3 = {
+  async list() {
+    const command = new ListObjectsV2Command({ Bucket: bucket });
+    const response = await client.send(command);
+    return {
+      contents: (response.Contents || []).map((obj) => ({
+        key: obj.Key,
+        size: obj.Size,
+        lastModified: obj.LastModified?.toISOString(),
+      })),
+    };
+  },
+
+  file(key: string) {
+    return {
+      async exists(): Promise<boolean> {
+        try {
+          await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+          return true;
+        } catch {
+          return false;
+        }
+      },
+
+      async text(): Promise<string> {
+        const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        return response.Body!.transformToString();
+      },
+
+      async arrayBuffer(): Promise<ArrayBuffer> {
+        const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        const bytes = await response.Body!.transformToByteArray();
+        return bytes.buffer as ArrayBuffer;
+      },
+
+      get type(): string | undefined {
+        return undefined; // Will be fetched from response if needed
+      },
+    };
+  },
+
+  async write(key: string, data: ArrayBuffer | Uint8Array) {
+    const body = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+    await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body }));
+  },
+
+  async delete(key: string) {
+    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  },
+};

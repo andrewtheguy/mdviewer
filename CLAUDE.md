@@ -23,6 +23,7 @@ Default to using Bun instead of Node.js.
 - `WebSocket` is built-in. Don't use `ws`.
 - Prefer `Bun.file` over `node:fs`'s readFile/writeFile
 - Bun.$`ls` instead of execa.
+- **S3**: Use `@aws-sdk/client-s3` instead of Bun's built-in `S3Client`. Bun's S3 client has a bug where it doesn't properly URL-encode special characters (like `#`, emojis, non-ASCII) in S3 keys, causing phantom 404 errors.
 
 ## Testing
 

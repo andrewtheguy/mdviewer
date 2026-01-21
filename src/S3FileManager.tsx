@@ -3,6 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
 
+// Encode key as base64 URL-safe
+function encodeKey(key: string): string {
+  const utf8Bytes = new TextEncoder().encode(key);
+  const binaryStr = Array.from(utf8Bytes, (byte) => String.fromCharCode(byte)).join("");
+  const base64 = btoa(binaryStr);
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 interface S3Object {
   key: string;
   size: number;
@@ -96,7 +104,7 @@ export function S3FileManager() {
 
   const handleDownload = async (key: string) => {
     try {
-      const response = await fetch(`/api/s3/download/${encodeURIComponent(key)}`);
+      const response = await fetch(`/api/s3/download?key=${encodeKey(key)}`);
       if (!response.ok) {
         const data = await response.json();
         setError(data.error || "Failed to download file");
@@ -119,7 +127,7 @@ export function S3FileManager() {
 
   const handleDelete = async (key: string) => {
     try {
-      const response = await fetch(`/api/s3/delete/${encodeURIComponent(key)}`, {
+      const response = await fetch(`/api/s3/delete?key=${encodeKey(key)}`, {
         method: "DELETE",
       });
 
@@ -157,7 +165,7 @@ export function S3FileManager() {
     setPreviewLoading(true);
     setPreviewContent("");
     try {
-      const response = await fetch(`/api/s3/preview/${encodeURIComponent(key)}`);
+      const response = await fetch(`/api/s3/preview?key=${encodeKey(key)}`);
       if (!response.ok) {
         const data = await response.json();
         setError(data.error || "Failed to preview file");

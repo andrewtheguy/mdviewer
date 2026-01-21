@@ -2,6 +2,11 @@ import { serve } from "bun";
 import index from "./index.html";
 import { s3 } from "./lib/s3";
 
+// Decode base64 URL-safe encoded key
+function decodeKey(encoded: string): string {
+  return Buffer.from(encoded, "base64url").toString("utf-8");
+}
+
 const server = serve({
   routes: {
     // Serve index.html for all unmatched routes.
@@ -55,10 +60,15 @@ const server = serve({
       },
     },
 
-    "/api/s3/download/:key": {
+    "/api/s3/download": {
       async GET(req) {
         try {
-          const key = decodeURIComponent(req.params.key);
+          const url = new URL(req.url);
+          const encodedKey = url.searchParams.get("key");
+          if (!encodedKey) {
+            return Response.json({ error: "Missing key parameter" }, { status: 400 });
+          }
+          const key = decodeKey(encodedKey);
           const s3File = s3.file(key);
           const exists = await s3File.exists();
 
@@ -88,10 +98,15 @@ const server = serve({
       },
     },
 
-    "/api/s3/delete/:key": {
+    "/api/s3/delete": {
       async DELETE(req) {
         try {
-          const key = decodeURIComponent(req.params.key);
+          const url = new URL(req.url);
+          const encodedKey = url.searchParams.get("key");
+          if (!encodedKey) {
+            return Response.json({ error: "Missing key parameter" }, { status: 400 });
+          }
+          const key = decodeKey(encodedKey);
           await s3.delete(key);
           return Response.json({ success: true, key });
         } catch (error) {
@@ -103,10 +118,15 @@ const server = serve({
       },
     },
 
-    "/api/s3/preview/:key": {
+    "/api/s3/preview": {
       async GET(req) {
         try {
-          const key = decodeURIComponent(req.params.key);
+          const url = new URL(req.url);
+          const encodedKey = url.searchParams.get("key");
+          if (!encodedKey) {
+            return Response.json({ error: "Missing key parameter" }, { status: 400 });
+          }
+          const key = decodeKey(encodedKey);
           const ext = key.toLowerCase().split(".").pop();
 
           // Only allow preview for .txt and .md files
