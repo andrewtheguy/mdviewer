@@ -22,15 +22,30 @@ const client = new S3Client({
 
 export const s3 = {
   async list() {
-    const command = new ListObjectsV2Command({ Bucket: bucket });
-    const response = await client.send(command);
-    return {
-      contents: (response.Contents || []).map((obj) => ({
-        key: obj.Key,
-        size: obj.Size,
-        lastModified: obj.LastModified?.toISOString(),
-      })),
-    };
+    const allContents: { key: string | undefined; size: number | undefined; lastModified: string | undefined }[] = [];
+    let continuationToken: string | undefined;
+
+    do {
+      const command = new ListObjectsV2Command({
+        Bucket: bucket,
+        ContinuationToken: continuationToken,
+      });
+      const response = await client.send(command);
+
+      if (response.Contents) {
+        for (const obj of response.Contents) {
+          allContents.push({
+            key: obj.Key,
+            size: obj.Size,
+            lastModified: obj.LastModified?.toISOString(),
+          });
+        }
+      }
+
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+
+    return { contents: allContents };
   },
 
   file(key: string) {
