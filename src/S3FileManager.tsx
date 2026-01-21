@@ -345,8 +345,8 @@ export function S3FileManager() {
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>S3 File Manager</CardTitle>
-            <CardDescription>Manage files in your S3 bucket</CardDescription>
+            <CardTitle>Markdown Viewer</CardTitle>
+            <CardDescription>Browse and view markdown or text files</CardDescription>
           </div>
           <Button onClick={fetchObjects} disabled={loading} variant="outline" size="sm">
             {loading ? "Loading..." : "Refresh"}
