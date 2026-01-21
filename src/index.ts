@@ -255,16 +255,19 @@ const server = serve({
           const url = new URL(req.url);
           const limit = parseInt(url.searchParams.get("limit") || "50", 10);
           const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+          const typeFilter = url.searchParams.get("type") || "all"; // "all", "txt", or "md"
 
           // Fetch all files from S3
           const result = await s3.list();
           const allObjects = result.contents || [];
 
-          // Filter for .txt and .md files only
+          // Filter for .txt and .md files based on type parameter
           const textFiles = allObjects.filter((obj) => {
             if (!obj.key) return false;
             const ext = obj.key.toLowerCase().split(".").pop();
-            return ext === "txt" || ext === "md";
+            if (typeFilter === "txt") return ext === "txt";
+            if (typeFilter === "md") return ext === "md";
+            return ext === "txt" || ext === "md"; // "all"
           });
 
           // Sort by lastModified descending (most recent first)

@@ -9,10 +9,14 @@ export interface RecentFile {
   lastModifiedISO: string;
 }
 
+export type FileTypeFilter = "all" | "txt" | "md";
+
 interface RecentFilesProps {
   files: RecentFile[];
   totalFiles: number;
   loading: boolean;
+  typeFilter: FileTypeFilter;
+  onTypeFilterChange: (filter: FileTypeFilter) => void;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
   onNavigateToFolder: (path: string) => void;
@@ -49,11 +53,14 @@ export function RecentFiles({
   files,
   totalFiles,
   loading,
+  typeFilter,
+  onTypeFilterChange,
   onPreview,
   onDownload,
   onNavigateToFolder,
   onClose,
 }: RecentFilesProps) {
+
   if (loading) {
     return (
       <div className="text-center text-muted-foreground py-8">
@@ -80,8 +87,22 @@ export function RecentFiles({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-muted-foreground">
-          Showing {files.length} of {totalFiles} recently updated file{totalFiles !== 1 ? "s" : ""}
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-muted-foreground">
+            Showing {files.length} of {totalFiles} file{totalFiles !== 1 ? "s" : ""}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Type:</span>
+            <select
+              value={typeFilter}
+              onChange={(e) => onTypeFilterChange(e.target.value as FileTypeFilter)}
+              className="text-sm border rounded px-2 py-1 bg-background"
+            >
+              <option value="all">All</option>
+              <option value="txt">.txt only</option>
+              <option value="md">.md only</option>
+            </select>
+          </div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose}>
           Back to browse
@@ -98,7 +119,13 @@ export function RecentFiles({
             </tr>
           </thead>
           <tbody>
-            {files.map((file) => {
+            {files.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="p-6 text-center text-muted-foreground">
+                  No {typeFilter === "all" ? "" : `.${typeFilter} `}files found
+                </td>
+              </tr>
+            ) : files.map((file) => {
               return (
                 <tr
                   key={file.key}

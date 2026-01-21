@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import Markdown from "react-markdown";
 import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
-import { RecentFiles, type RecentFile } from "@/components/RecentFiles";
+import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -127,6 +127,7 @@ export function S3FileManager() {
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [recentTotalFiles, setRecentTotalFiles] = useState(0);
   const [isLoadingRecent, setIsLoadingRecent] = useState(false);
+  const [recentTypeFilter, setRecentTypeFilter] = useState<FileTypeFilter>("all");
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -353,10 +354,10 @@ export function S3FileManager() {
   }, [handleClearSearch]);
 
   // Recent files handlers
-  const loadRecentFiles = useCallback(async () => {
+  const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all") => {
     setIsLoadingRecent(true);
     try {
-      const response = await fetch("/api/s3/recent?limit=50");
+      const response = await fetch(`/api/s3/recent?limit=50&type=${typeFilter}`);
       const data = await response.json();
       if (data.error) {
         setError(data.error);
@@ -380,7 +381,12 @@ export function S3FileManager() {
     setIsRecentMode(true);
     setIsSearchMode(false);
     setSearchQuery("");
-    loadRecentFiles();
+    loadRecentFiles(recentTypeFilter);
+  }, [loadRecentFiles, recentTypeFilter]);
+
+  const handleRecentTypeFilterChange = useCallback((filter: FileTypeFilter) => {
+    setRecentTypeFilter(filter);
+    loadRecentFiles(filter);
   }, [loadRecentFiles]);
 
   const handleCloseRecent = useCallback(() => {
@@ -403,7 +409,7 @@ export function S3FileManager() {
     if (initialQuery) {
       handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
-      loadRecentFiles();
+      loadRecentFiles(recentTypeFilter);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -422,7 +428,7 @@ export function S3FileManager() {
         setPreviewContent("");
         setIsRecentMode(true);
         setIsSearchMode(false);
-        loadRecentFiles();
+        loadRecentFiles(recentTypeFilter);
       } else {
         setPreviewFile(null);
         setPreviewContent("");
@@ -577,6 +583,8 @@ export function S3FileManager() {
             files={recentFiles}
             totalFiles={recentTotalFiles}
             loading={isLoadingRecent}
+            typeFilter={recentTypeFilter}
+            onTypeFilterChange={handleRecentTypeFilterChange}
             onPreview={handlePreview}
             onDownload={handleDownload}
             onNavigateToFolder={handleNavigateToFolderFromRecent}
