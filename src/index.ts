@@ -102,6 +102,42 @@ const server = serve({
         }
       },
     },
+
+    "/api/s3/preview/:key": {
+      async GET(req) {
+        try {
+          const key = decodeURIComponent(req.params.key);
+          const ext = key.toLowerCase().split(".").pop();
+
+          // Only allow preview for .txt and .md files
+          if (ext !== "txt" && ext !== "md") {
+            return Response.json(
+              { error: "Preview is only supported for .txt and .md files" },
+              { status: 400 }
+            );
+          }
+
+          const s3File = s3.file(key);
+          const exists = await s3File.exists();
+
+          if (!exists) {
+            return Response.json({ error: "File not found" }, { status: 404 });
+          }
+
+          const content = await s3File.text();
+          return new Response(content, {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+            },
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to preview file" },
+            { status: 500 }
+          );
+        }
+      },
+    },
   },
 
   development: process.env.NODE_ENV !== "production" && {

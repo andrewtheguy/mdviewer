@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import Markdown from "react-markdown";
 
 interface S3Object {
   key: string;
@@ -27,7 +28,19 @@ export function S3FileManager() {
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isPreviewable = (key: string): boolean => {
+    const ext = key.toLowerCase().split(".").pop();
+    return ext === "txt" || ext === "md";
+  };
+
+  const isMarkdown = (key: string): boolean => {
+    return key.toLowerCase().endsWith(".md");
+  };
 
   const fetchObjects = useCallback(async () => {
     setLoading(true);
@@ -139,6 +152,33 @@ export function S3FileManager() {
     handleUpload(e.dataTransfer.files);
   };
 
+  const handlePreview = async (key: string) => {
+    setPreviewFile(key);
+    setPreviewLoading(true);
+    setPreviewContent("");
+    try {
+      const response = await fetch(`/api/s3/preview/${encodeURIComponent(key)}`);
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || "Failed to preview file");
+        setPreviewFile(null);
+        return;
+      }
+      const content = await response.text();
+      setPreviewContent(content);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to preview file");
+      setPreviewFile(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewFile(null);
+    setPreviewContent("");
+  };
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -233,6 +273,15 @@ export function S3FileManager() {
                         </>
                       ) : (
                         <>
+                          {isPreviewable(obj.key) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handlePreview(obj.key)}
+                            >
+                              Preview
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
@@ -256,6 +305,35 @@ export function S3FileManager() {
             </tbody>
           </table>
         </div>
+
+        {/* Preview Modal */}
+        {previewFile && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-background rounded-lg shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b">
+                <h2 className="text-lg font-semibold truncate pr-4">{previewFile}</h2>
+                <Button variant="ghost" size="sm" onClick={closePreview}>
+                  Close
+                </Button>
+              </div>
+              <div className="flex-1 overflow-auto p-4">
+                {previewLoading ? (
+                  <div className="text-center text-muted-foreground py-8">
+                    Loading...
+                  </div>
+                ) : isMarkdown(previewFile) ? (
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <Markdown>{previewContent}</Markdown>
+                  </div>
+                ) : (
+                  <pre className="font-mono text-sm whitespace-pre-wrap break-words">
+                    {previewContent}
+                  </pre>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
