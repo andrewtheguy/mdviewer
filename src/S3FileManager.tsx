@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import Markdown from "react-markdown";
 import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
+import { RecentFiles, type RecentFile } from "@/components/RecentFiles";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -61,6 +62,11 @@ function getSearchQueryFromURL(): string {
   return params.get("q") || "";
 }
 
+// Check if URL is /recent
+function isRecentViewFromURL(): boolean {
+  return window.location.pathname === "/recent";
+}
+
 // Process flat S3 keys into folder/file structure at a given path
 function getItemsAtPath(objects: S3Object[], path: string) {
   const prefix = path ? path + "/" : "";
@@ -115,6 +121,12 @@ export function S3FileManager() {
 
   // Reindex state
   const [isReindexing, setIsReindexing] = useState(false);
+
+  // Recent files state
+  const [isRecentMode, setIsRecentMode] = useState(isRecentViewFromURL);
+  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
+  const [recentTotalFiles, setRecentTotalFiles] = useState(0);
+  const [isLoadingRecent, setIsLoadingRecent] = useState(false);
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -340,11 +352,58 @@ export function S3FileManager() {
     navigateToFolder(path);
   }, [handleClearSearch]);
 
-  // Trigger search on initial load if query in URL
+  // Recent files handlers
+  const loadRecentFiles = useCallback(async () => {
+    setIsLoadingRecent(true);
+    try {
+      const response = await fetch("/api/s3/recent?limit=50");
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        setRecentFiles([]);
+        setRecentTotalFiles(0);
+      } else {
+        setRecentFiles(data.files || []);
+        setRecentTotalFiles(data.totalFiles || 0);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load recent files");
+      setRecentFiles([]);
+      setRecentTotalFiles(0);
+    } finally {
+      setIsLoadingRecent(false);
+    }
+  }, []);
+
+  const handleShowRecent = useCallback(() => {
+    window.history.pushState({}, "", "/recent");
+    setIsRecentMode(true);
+    setIsSearchMode(false);
+    setSearchQuery("");
+    loadRecentFiles();
+  }, [loadRecentFiles]);
+
+  const handleCloseRecent = useCallback(() => {
+    setIsRecentMode(false);
+    if (currentPath) {
+      window.history.pushState({}, "", `/folder/${encodeKey(currentPath)}`);
+    } else {
+      window.history.pushState({}, "", "/");
+    }
+  }, [currentPath]);
+
+  const handleNavigateToFolderFromRecent = useCallback((path: string) => {
+    setIsRecentMode(false);
+    navigateToFolder(path);
+  }, []);
+
+  // Trigger search on initial load if query in URL, or load recent files if on /recent
   useEffect(() => {
     const initialQuery = getSearchQueryFromURL();
     if (initialQuery) {
       handleSearch(initialQuery, false);
+    } else if (isRecentViewFromURL()) {
+      loadRecentFiles();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -353,20 +412,29 @@ export function S3FileManager() {
     const handlePopState = () => {
       const previewKey = getPreviewKeyFromURL();
       const urlQuery = getSearchQueryFromURL();
+      const isRecent = isRecentViewFromURL();
 
       if (previewKey) {
         setPreviewFile(previewKey);
+        setIsRecentMode(false);
+      } else if (isRecent) {
+        setPreviewFile(null);
+        setPreviewContent("");
+        setIsRecentMode(true);
+        setIsSearchMode(false);
+        loadRecentFiles();
       } else {
         setPreviewFile(null);
         setPreviewContent("");
         setCurrentPath(getFolderPathFromURL());
+        setIsRecentMode(false);
       }
 
       // Handle search query changes from back/forward
       if (urlQuery !== searchQuery) {
         if (urlQuery) {
           handleSearch(urlQuery, false);
-        } else {
+        } else if (!isRecent) {
           setSearchQuery("");
           setSearchResults([]);
           setSearchTotalHits(0);
@@ -376,7 +444,7 @@ export function S3FileManager() {
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [searchQuery, handleSearch]);
+  }, [searchQuery, handleSearch, loadRecentFiles]);
 
   // Load content when preview file changes
   useEffect(() => {
@@ -437,6 +505,9 @@ export function S3FileManager() {
             <CardDescription>Browse and view markdown or text files</CardDescription>
           </div>
           <div className="flex items-center gap-2">
+            <Button onClick={handleShowRecent} variant={isRecentMode ? "default" : "outline"} size="sm">
+              Recent
+            </Button>
             <Button onClick={handleReindex} disabled={isReindexing} variant="outline" size="sm">
               {isReindexing ? (
                 <>
@@ -496,6 +567,16 @@ export function S3FileManager() {
             onPreview={handlePreview}
             onDownload={handleDownload}
             onNavigateToFolder={handleNavigateToFolderFromSearch}
+          />
+        ) : isRecentMode ? (
+          <RecentFiles
+            files={recentFiles}
+            totalFiles={recentTotalFiles}
+            loading={isLoadingRecent}
+            onPreview={handlePreview}
+            onDownload={handleDownload}
+            onNavigateToFolder={handleNavigateToFolderFromRecent}
+            onClose={handleCloseRecent}
           />
         ) : (
           <>

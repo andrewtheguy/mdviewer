@@ -1,0 +1,181 @@
+import { Button } from "@/components/ui/button";
+
+export interface RecentFile {
+  id: string;
+  key: string;
+  name: string;
+  extension: string;
+  path: string;
+  size: number;
+  lastModified: number;
+  lastModifiedISO: string;
+  contentPreview: string;
+}
+
+interface RecentFilesProps {
+  files: RecentFile[];
+  totalFiles: number;
+  loading: boolean;
+  onPreview: (key: string) => void;
+  onDownload: (key: string) => void;
+  onNavigateToFolder: (path: string) => void;
+  onClose: () => void;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 Bytes";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
+function formatDate(timestamp: number): string {
+  return new Date(timestamp).toLocaleString();
+}
+
+function getRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+
+  if (days > 0) return `${days} day${days > 1 ? "s" : ""} ago`;
+  if (hours > 0) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+  if (minutes > 0) return `${minutes} minute${minutes > 1 ? "s" : ""} ago`;
+  return "just now";
+}
+
+export function RecentFiles({
+  files,
+  totalFiles,
+  loading,
+  onPreview,
+  onDownload,
+  onNavigateToFolder,
+  onClose,
+}: RecentFilesProps) {
+  if (loading) {
+    return (
+      <div className="text-center text-muted-foreground py-8">
+        Loading recent files...
+      </div>
+    );
+  }
+
+  if (files.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            No recent .txt or .md files found
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Back to browse
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm text-muted-foreground">
+          Showing {files.length} of {totalFiles} recently updated file{totalFiles !== 1 ? "s" : ""}
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Back to browse
+        </Button>
+      </div>
+
+      <div className="border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50">
+            <tr>
+              <th className="text-left p-3 font-medium">File</th>
+              <th className="text-left p-3 font-medium">Last Updated</th>
+              <th className="text-right p-3 font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files.map((file) => {
+              return (
+                <tr
+                  key={file.id}
+                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  onClick={() => onPreview(file.key)}
+                >
+                  <td className="p-3">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                        <span className="break-all">{file.name}</span>
+                        <span className="text-muted-foreground text-xs whitespace-nowrap">
+                          ({formatBytes(file.size)})
+                        </span>
+                      </div>
+                      {file.path && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigateToFolder(file.path);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left"
+                        >
+                          /{file.path}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm">{getRelativeTime(file.lastModified)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(file.lastModified)}
+                      </span>
+                    </div>
+                  </td>
+                  <td
+                    className="p-3 text-right space-x-2 whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onPreview(file.key)}
+                    >
+                      Preview
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onDownload(file.key)}
+                    >
+                      Download
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
