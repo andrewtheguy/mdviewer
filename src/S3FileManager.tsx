@@ -386,7 +386,7 @@ export function S3FileManager() {
             onClick={() => navigateToFolder("")}
             className="hover:text-primary hover:underline"
           >
-            /
+            (root)
           </button>
           {pathSegments.map((segment, index) => {
             const pathToHere = pathSegments.slice(0, index + 1).join("/");
