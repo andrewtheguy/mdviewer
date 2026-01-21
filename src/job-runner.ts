@@ -1,4 +1,4 @@
-import { serve } from "bun";
+import express from "express";
 import { s3 } from "./lib/s3";
 import { getIndex, keyToId, type S3FileDocument } from "./lib/meilisearch";
 
@@ -18,7 +18,7 @@ const CONTENT_PREVIEW_LENGTH = 500;
 const DOWNLOAD_BATCH_SIZE = 20;
 const INDEX_BATCH_SIZE = 100;
 const S3_FETCH_TIMEOUT_MS = 30000; // 30 seconds per file
-const MEILISEARCH_TIMEOUT_MS = 60000; // 60 seconds for batch indexing
+const MEILISEARCH_TIMEOUT_MS = 300000; // 5 minutes for batch indexing
 
 // In-memory status
 interface ReindexStatus {
@@ -202,48 +202,41 @@ async function runReindex() {
   }
 }
 
-const server = serve({
-  port: PORT,
-  routes: {
-    "/reindex": {
-      POST() {
-        if (status.running) {
-          return Response.json(
-            { error: "Reindex already in progress" },
-            { status: 409 }
-          );
-        }
+const app = express();
 
-        status.running = true;
-        status.progress = { current: 0, total: 0 };
+app.post("/reindex", (_req, res) => {
+  if (status.running) {
+    res.status(409).json({ error: "Reindex already in progress" });
+    return;
+  }
 
-        // Run reindex in background (don't await)
-        runReindex().catch((err) => {
-          console.error("[JobRunner] Unexpected error in runReindex:", err);
-          status.running = false;
-          status.lastResult = {
-            success: false,
-            total: 0,
-            indexed: 0,
-            skipped: 0,
-            errors: 1,
-            completedAt: new Date().toISOString(),
-          };
-        });
+  status.running = true;
+  status.progress = { current: 0, total: 0 };
 
-        return Response.json({
-          success: true,
-          message: "Reindex started",
-        });
-      },
-    },
+  // Run reindex in background (don't await)
+  runReindex().catch((err) => {
+    console.error("[JobRunner] Unexpected error in runReindex:", err);
+    status.running = false;
+    status.lastResult = {
+      success: false,
+      total: 0,
+      indexed: 0,
+      skipped: 0,
+      errors: 1,
+      completedAt: new Date().toISOString(),
+    };
+  });
 
-    "/status": {
-      GET() {
-        return Response.json(status);
-      },
-    },
-  },
+  res.json({
+    success: true,
+    message: "Reindex started",
+  });
 });
 
-console.log(`[JobRunner] Running on http://localhost:${server.port}`);
+app.get("/status", (_req, res) => {
+  res.json(status);
+});
+
+app.listen(PORT, () => {
+  console.log(`[JobRunner] Running on http://localhost:${PORT}`);
+});
