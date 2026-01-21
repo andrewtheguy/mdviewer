@@ -17,7 +17,7 @@ A web-based markdown viewer with S3 storage and full-text search powered by Meil
 
 - [Bun](https://bun.sh) v1.3+
 - [Meilisearch](https://www.meilisearch.com/) v1.0+
-- S3-compatible storage (AWS S3, MinIO, etc.)
+- S3-compatible storage (Garage, Ceph, etc.)
 
 ## Installation
 
