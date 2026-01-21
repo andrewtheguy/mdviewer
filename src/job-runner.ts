@@ -15,7 +15,6 @@ const PORT = process.env.JOB_RUNNER_PORT || 3001;
 
 const INDEXABLE_EXTENSIONS = ["txt", "md"];
 const CONTENT_PREVIEW_LENGTH = 500;
-const DOWNLOAD_BATCH_SIZE = 20;
 const INDEX_BATCH_SIZE = 100;
 const S3_FETCH_TIMEOUT_MS = 30000; // 30 seconds per file
 const MEILISEARCH_TIMEOUT_MS = 300000; // 5 minutes for batch indexing
@@ -103,47 +102,37 @@ async function runReindex() {
     );
 
     let pendingDocuments: S3FileDocument[] = [];
-    let processed = 0;
 
-    for (let i = 0; i < indexableObjects.length; i += DOWNLOAD_BATCH_SIZE) {
-      const batch = indexableObjects.slice(i, i + DOWNLOAD_BATCH_SIZE);
+    for (let i = 0; i < indexableObjects.length; i++) {
+      const obj = indexableObjects[i];
+      const key = obj.key!;
 
-      const batchResults = await Promise.allSettled(
-        batch.map(async (obj) => {
-          const key = obj.key!;
-          const content = await withTimeout(
-            s3.file(key).text(),
-            S3_FETCH_TIMEOUT_MS,
-            `fetch ${key}`
-          );
-          const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
-          const lastModified = obj.lastModified
-            ? new Date(obj.lastModified)
-            : new Date();
+      try {
+        const content = await withTimeout(
+          s3.file(key).text(),
+          S3_FETCH_TIMEOUT_MS,
+          `fetch ${key}`
+        );
+        const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
+        const lastModified = obj.lastModified
+          ? new Date(obj.lastModified)
+          : new Date();
 
-          return {
-            id: keyToId(key),
-            key,
-            name: getBasename(key),
-            extension: getExtension(key),
-            path: getPath(key),
-            size: obj.size || 0,
-            lastModified: lastModified.getTime(),
-            lastModifiedISO: lastModified.toISOString(),
-            content,
-            contentPreview,
-          } as S3FileDocument;
-        })
-      );
-
-      for (const [idx, res] of batchResults.entries()) {
-        if (res.status === "fulfilled") {
-          pendingDocuments.push(res.value);
-        } else {
-          const failedKey = batch[idx]?.key || "unknown";
-          console.error(`[JobRunner] Failed to fetch "${failedKey}":`, res.reason);
-          result.errors++;
-        }
+        pendingDocuments.push({
+          id: keyToId(key),
+          key,
+          name: getBasename(key),
+          extension: getExtension(key),
+          path: getPath(key),
+          size: obj.size || 0,
+          lastModified: lastModified.getTime(),
+          lastModifiedISO: lastModified.toISOString(),
+          content,
+          contentPreview,
+        });
+      } catch (err) {
+        console.error(`[JobRunner] Failed to fetch "${key}":`, err);
+        result.errors++;
       }
 
       if (pendingDocuments.length >= INDEX_BATCH_SIZE) {
@@ -161,11 +150,12 @@ async function runReindex() {
         pendingDocuments = [];
       }
 
-      processed += batch.length;
-      status.progress.current = processed;
-      console.log(
-        `[JobRunner] Processed ${processed}/${indexableObjects.length} files (indexed: ${result.indexed})...`
-      );
+      status.progress.current = i + 1;
+      if ((i + 1) % 100 === 0 || i === indexableObjects.length - 1) {
+        console.log(
+          `[JobRunner] Processed ${i + 1}/${indexableObjects.length} files (indexed: ${result.indexed})...`
+        );
+      }
     }
 
     if (pendingDocuments.length > 0) {
