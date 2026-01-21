@@ -247,6 +247,34 @@ const server = serve({
         }
       },
     },
+
+    // Recent files endpoint - returns recently updated .txt and .md files
+    "/api/s3/recent": {
+      async GET(req) {
+        try {
+          const url = new URL(req.url);
+          const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+          const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+          const searchIndex = await getIndex();
+          const results = await searchIndex.search("", {
+            limit,
+            offset,
+            sort: ["lastModified:desc"],
+          });
+
+          return Response.json({
+            files: results.hits,
+            totalFiles: results.estimatedTotalHits || results.hits.length,
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to get recent files" },
+            { status: 500 }
+          );
+        }
+      },
+    },
   },
 
   development: process.env.NODE_ENV !== "production" && {
