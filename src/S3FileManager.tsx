@@ -151,13 +151,27 @@ export function S3FileManager() {
     setIsReindexing(true);
     setError(null);
     try {
-      const response = await fetch("/api/search/reindex", { method: "POST" });
-      const data = await response.json();
-      if (data.error) {
-        setError(data.error);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
+
+      const response = await fetch("/api/search/reindex", {
+        method: "POST",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || `Reindex failed with status ${response.status}`);
+        return;
       }
+      // Reindex succeeded - no need to show anything
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reindex");
+      if (err instanceof Error && err.name === "AbortError") {
+        setError("Reindex timed out - try again or check server logs");
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to reindex");
+      }
     } finally {
       setIsReindexing(false);
     }

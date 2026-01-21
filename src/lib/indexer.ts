@@ -82,6 +82,8 @@ export interface ReindexResult {
   errors: string[];
 }
 
+const BATCH_SIZE = 20; // Process 20 files in parallel
+
 export async function fullReindex(): Promise<ReindexResult> {
   const result: ReindexResult = {
     total: 0,
@@ -91,61 +93,81 @@ export async function fullReindex(): Promise<ReindexResult> {
   };
 
   try {
+    console.log("[Indexer] Getting index...");
     const index = await getIndex();
 
-    // Delete all documents first
+    console.log("[Indexer] Deleting all documents...");
     await index.deleteAllDocuments();
 
-    // List all files from S3
+    console.log("[Indexer] Listing S3 files...");
     const listResult = await s3.list();
     const objects = listResult.contents || [];
 
     result.total = objects.length;
 
+    // Filter to indexable files only
+    const indexableObjects = objects.filter(
+      (obj) => obj.key && isIndexable(obj.key)
+    );
+    result.skipped = objects.length - indexableObjects.length;
+    console.log(
+      `[Indexer] Found ${objects.length} total files, ${indexableObjects.length} indexable`
+    );
+
     const documents: S3FileDocument[] = [];
+    let processed = 0;
 
-    for (const obj of objects) {
-      if (!obj.key) continue;
+    // Process in parallel batches
+    for (let i = 0; i < indexableObjects.length; i += BATCH_SIZE) {
+      const batch = indexableObjects.slice(i, i + BATCH_SIZE);
 
-      if (!isIndexable(obj.key)) {
-        result.skipped++;
-        continue;
+      const batchResults = await Promise.allSettled(
+        batch.map(async (obj) => {
+          const content = await s3.file(obj.key!).text();
+          const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
+          const lastModified = obj.lastModified
+            ? new Date(obj.lastModified)
+            : new Date();
+
+          return {
+            id: keyToId(obj.key!),
+            key: obj.key!,
+            name: getBasename(obj.key!),
+            extension: getExtension(obj.key!),
+            path: getPath(obj.key!),
+            size: obj.size || 0,
+            lastModified: lastModified.getTime(),
+            lastModifiedISO: lastModified.toISOString(),
+            content,
+            contentPreview,
+          } as S3FileDocument;
+        })
+      );
+
+      for (const res of batchResults) {
+        if (res.status === "fulfilled") {
+          documents.push(res.value);
+        } else {
+          result.errors.push(res.reason?.message || "Unknown error");
+        }
       }
 
-      try {
-        const content = await s3.file(obj.key).text();
-        const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
-        const lastModified = obj.lastModified
-          ? new Date(obj.lastModified)
-          : new Date();
-
-        documents.push({
-          id: keyToId(obj.key),
-          key: obj.key,
-          name: getBasename(obj.key),
-          extension: getExtension(obj.key),
-          path: getPath(obj.key),
-          size: obj.size || 0,
-          lastModified: lastModified.getTime(),
-          lastModifiedISO: lastModified.toISOString(),
-          content,
-          contentPreview,
-        });
-      } catch (error) {
-        result.errors.push(
-          `${obj.key}: ${error instanceof Error ? error.message : "Unknown error"}`
-        );
-      }
+      processed += batch.length;
+      console.log(
+        `[Indexer] Processed ${processed}/${indexableObjects.length} files...`
+      );
     }
 
-    // Batch add documents
+    console.log(`[Indexer] Adding ${documents.length} documents to index...`);
     if (documents.length > 0) {
       await index.addDocuments(documents);
       result.indexed = documents.length;
     }
 
+    console.log("[Indexer] Done!");
     return result;
   } catch (error) {
+    console.error("[Indexer] Error:", error);
     result.errors.push(
       `Full reindex failed: ${error instanceof Error ? error.message : "Unknown error"}`
     );

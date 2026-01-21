@@ -2,7 +2,7 @@ import { serve } from "bun";
 import index from "./index.html";
 import { s3 } from "./lib/s3";
 import { getIndex } from "./lib/meilisearch";
-import { fullReindex, getIndexStats } from "./lib/indexer";
+import { getIndexStats } from "./lib/indexer";
 
 // Decode base64 URL-safe encoded key
 function decodeKey(encoded: string): string {
@@ -202,18 +202,22 @@ const server = serve({
 
     "/api/search/reindex": {
       async POST() {
-        try {
-          const result = await fullReindex();
-          return Response.json({
-            success: true,
-            ...result,
-          });
-        } catch (error) {
-          return Response.json(
-            { error: error instanceof Error ? error.message : "Reindex failed" },
-            { status: 500 }
-          );
-        }
+        // Spawn a separate process for reindexing
+        console.log("[Reindex] Spawning worker process...");
+        const proc = Bun.spawn(["bun", "run", "src/lib/reindex-worker.ts"], {
+          stdout: "inherit",
+          stderr: "inherit",
+        });
+
+        // Don't await - let it run in background
+        proc.exited.then((code) => {
+          console.log(`[Reindex] Worker exited with code ${code}`);
+        });
+
+        return Response.json({
+          success: true,
+          message: "Reindex started in separate process",
+        });
       },
     },
 
