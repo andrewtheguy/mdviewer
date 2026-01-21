@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
@@ -40,16 +40,48 @@ function decodeKey(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+// Get folder path from URL
+function getFolderPathFromURL(): string {
+  const match = window.location.pathname.match(/^\/folder\/(.+)$/);
+  if (match && match[1]) {
+    try {
+      return decodeKey(match[1]);
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+// Process flat S3 keys into folder/file structure at a given path
+function getItemsAtPath(objects: S3Object[], path: string) {
+  const prefix = path ? path + "/" : "";
+  const folders = new Set<string>();
+  const files: S3Object[] = [];
+
+  for (const obj of objects) {
+    if (!obj.key.startsWith(prefix)) continue;
+    const remainder = obj.key.slice(prefix.length);
+    if (remainder === "") continue; // Skip if exact match (the folder itself)
+    const slashIndex = remainder.indexOf("/");
+
+    if (slashIndex === -1) {
+      files.push(obj); // It's a file at this level
+    } else {
+      folders.add(remainder.slice(0, slashIndex)); // It's a folder
+    }
+  }
+  return { folders: Array.from(folders).sort(), files };
+}
+
 export function S3FileManager() {
   const [objects, setObjects] = useState<S3Object[]>([]);
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [currentPath, setCurrentPath] = useState<string>(getFolderPathFromURL);
 
   // Get preview key from URL
   const getPreviewKeyFromURL = (): string | null => {
@@ -97,36 +129,6 @@ export function S3FileManager() {
     fetchObjects();
   }, [fetchObjects]);
 
-  const handleUpload = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-
-    setUploading(true);
-    setError(null);
-
-    try {
-      for (const file of Array.from(files)) {
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const response = await fetch("/api/s3/upload", {
-          method: "POST",
-          body: formData,
-        });
-
-        const data = await response.json();
-        if (data.error) {
-          setError(data.error);
-          break;
-        }
-      }
-      await fetchObjects();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload file");
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleDownload = async (key: string) => {
     try {
       const response = await fetch(`/api/s3/download?key=${encodeKey(key)}`);
@@ -140,7 +142,7 @@ export function S3FileManager() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = key;
+      a.download = key.split("/").pop() || key;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -169,33 +171,31 @@ export function S3FileManager() {
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    handleUpload(e.dataTransfer.files);
-  };
-
   const closePreview = useCallback(() => {
-    window.history.pushState({}, "", "/");
+    // Go back to current folder path
+    if (currentPath) {
+      window.history.pushState({}, "", `/folder/${encodeKey(currentPath)}`);
+    } else {
+      window.history.pushState({}, "", "/");
+    }
     setPreviewFile(null);
     setPreviewContent("");
     setPreviewLoading(false);
-  }, []);
+  }, [currentPath]);
 
   const handlePreview = (key: string) => {
     const encoded = encodeKey(key);
     window.history.pushState({}, "", `/preview/${encoded}`);
     setPreviewFile(key);
+  };
+
+  const navigateToFolder = (path: string) => {
+    if (path) {
+      window.history.pushState({}, "", `/folder/${encodeKey(path)}`);
+    } else {
+      window.history.pushState({}, "", "/");
+    }
+    setCurrentPath(path);
   };
 
   const loadPreviewContent = useCallback(async (key: string) => {
@@ -221,10 +221,13 @@ export function S3FileManager() {
   // Handle browser back/forward
   useEffect(() => {
     const handlePopState = () => {
-      const key = getPreviewKeyFromURL();
-      setPreviewFile(key);
-      if (!key) {
+      const previewKey = getPreviewKeyFromURL();
+      if (previewKey) {
+        setPreviewFile(previewKey);
+      } else {
+        setPreviewFile(null);
         setPreviewContent("");
+        setCurrentPath(getFolderPathFromURL());
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -237,6 +240,17 @@ export function S3FileManager() {
       loadPreviewContent(previewFile);
     }
   }, [previewFile, loadPreviewContent]);
+
+  // Get items at current path
+  const { folders, files } = getItemsAtPath(objects, currentPath);
+
+  // Build breadcrumb segments
+  const pathSegments = currentPath ? currentPath.split("/") : [];
+
+  // Get file name from full key
+  const getFileName = (key: string): string => {
+    return key.split("/").pop() || key;
+  };
 
   // Full-screen preview view
   if (previewFile) {
@@ -290,34 +304,29 @@ export function S3FileManager() {
           </div>
         )}
 
-        {/* Upload Area */}
-        <div
-          className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
-            isDragging
-              ? "border-primary bg-primary/5"
-              : "border-muted-foreground/25 hover:border-muted-foreground/50"
-          }`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={(e) => handleUpload(e.target.files)}
-          />
-          <p className="text-muted-foreground mb-2">
-            Drag and drop files here, or
-          </p>
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            size="sm"
+        {/* Breadcrumb Navigation */}
+        <div className="flex items-center gap-1 text-sm flex-wrap">
+          <button
+            onClick={() => navigateToFolder("")}
+            className="hover:text-primary hover:underline"
           >
-            {uploading ? "Uploading..." : "Select Files"}
-          </Button>
+            /
+          </button>
+          {pathSegments.map((segment, index) => {
+            const pathToHere = pathSegments.slice(0, index + 1).join("/");
+            return (
+              <span key={pathToHere} className="flex items-center gap-1">
+                <span className="text-muted-foreground">&gt;</span>
+                <button
+                  onClick={() => navigateToFolder(pathToHere)}
+                  className="hover:text-primary hover:underline max-w-[200px] truncate"
+                  title={segment}
+                >
+                  {segment}
+                </button>
+              </span>
+            );
+          })}
         </div>
 
         {/* File List */}
@@ -326,72 +335,140 @@ export function S3FileManager() {
             <thead className="bg-muted/50">
               <tr>
                 <th className="text-left p-3 font-medium">Name</th>
-                <th className="text-left p-3 font-medium">Size</th>
-                <th className="text-left p-3 font-medium">Last Modified</th>
                 <th className="text-right p-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {objects.length === 0 ? (
+              {/* Parent folder navigation */}
+              {currentPath && (
+                <tr className="border-t hover:bg-muted/30">
+                  <td className="p-3">
+                    <button
+                      onClick={() => {
+                        const parentPath = currentPath.split("/").slice(0, -1).join("/");
+                        navigateToFolder(parentPath);
+                      }}
+                      className="flex items-center gap-2 hover:text-primary"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                      </svg>
+                      <span>..</span>
+                    </button>
+                  </td>
+                  <td className="p-3 text-right">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        const parentPath = currentPath.split("/").slice(0, -1).join("/");
+                        navigateToFolder(parentPath);
+                      }}
+                    >
+                      Back
+                    </Button>
+                  </td>
+                </tr>
+              )}
+
+              {/* Folders */}
+              {folders.map((folder) => (
+                <tr key={folder} className="border-t hover:bg-muted/30">
+                  <td className="p-3">
+                    <button
+                      onClick={() => navigateToFolder(currentPath ? `${currentPath}/${folder}` : folder)}
+                      className="flex items-center gap-2 hover:text-primary"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                      </svg>
+                      <span className="break-all">{folder}</span>
+                    </button>
+                  </td>
+                  <td className="p-3 text-right text-muted-foreground">
+                    -
+                  </td>
+                </tr>
+              ))}
+
+              {/* Files */}
+              {files.map((obj) => (
+                <tr key={obj.key} className="border-t hover:bg-muted/30">
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                      <span className="break-all">{getFileName(obj.key)}</span>
+                      <span className="text-muted-foreground text-xs whitespace-nowrap">
+                        ({formatBytes(obj.size)})
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-3 text-right space-x-2">
+                    {deleteConfirm === obj.key ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDelete(obj.key)}
+                        >
+                          Confirm
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setDeleteConfirm(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {isPreviewable(obj.key) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handlePreview(obj.key)}
+                          >
+                            Preview
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleDownload(obj.key)}
+                        >
+                          Download
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => setDeleteConfirm(obj.key)}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+
+              {/* Empty state */}
+              {folders.length === 0 && files.length === 0 && !currentPath && (
                 <tr>
-                  <td colSpan={4} className="p-6 text-center text-muted-foreground">
+                  <td colSpan={2} className="p-6 text-center text-muted-foreground">
                     {loading ? "Loading..." : "No files in bucket"}
                   </td>
                 </tr>
-              ) : (
-                objects.map((obj) => (
-                  <tr key={obj.key} className="border-t hover:bg-muted/30">
-                    <td className="p-3 font-mono text-xs break-all">{obj.key}</td>
-                    <td className="p-3 whitespace-nowrap">{formatBytes(obj.size)}</td>
-                    <td className="p-3 whitespace-nowrap">{formatDate(obj.lastModified)}</td>
-                    <td className="p-3 text-right space-x-2">
-                      {deleteConfirm === obj.key ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleDelete(obj.key)}
-                          >
-                            Confirm
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setDeleteConfirm(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          {isPreviewable(obj.key) && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handlePreview(obj.key)}
-                            >
-                              Preview
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDownload(obj.key)}
-                          >
-                            Download
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setDeleteConfirm(obj.key)}
-                          >
-                            Delete
-                          </Button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
+              )}
+              {folders.length === 0 && files.length === 0 && currentPath && (
+                <tr>
+                  <td colSpan={2} className="p-6 text-center text-muted-foreground">
+                    {loading ? "Loading..." : "This folder is empty"}
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
