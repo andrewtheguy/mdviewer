@@ -271,7 +271,7 @@ export function S3FileManager() {
               Loading...
             </div>
           ) : isMarkdown(previewFile) ? (
-            <div className="prose prose-sm dark:prose-invert max-w-4xl mx-auto">
+            <div className="prose prose-neutral dark:prose-invert max-w-4xl mx-auto prose-ul:list-disc prose-ol:list-decimal prose-li:my-1">
               <Markdown>{previewContent}</Markdown>
             </div>
           ) : (
