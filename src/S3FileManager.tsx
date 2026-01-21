@@ -187,6 +187,38 @@ export function S3FileManager() {
     setPreviewContent("");
   };
 
+  // Full-screen preview view
+  if (previewFile) {
+    return (
+      <div className="fixed inset-0 bg-background z-50 flex flex-col">
+        <div className="flex items-center gap-3 p-4 border-b bg-background">
+          <Button variant="ghost" size="sm" onClick={closePreview} className="gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6"/>
+            </svg>
+            Back
+          </Button>
+          <h1 className="text-sm font-medium truncate flex-1">{previewFile}</h1>
+        </div>
+        <div className="flex-1 overflow-auto p-6">
+          {previewLoading ? (
+            <div className="text-center text-muted-foreground py-8">
+              Loading...
+            </div>
+          ) : isMarkdown(previewFile) ? (
+            <div className="prose prose-sm dark:prose-invert max-w-4xl mx-auto">
+              <Markdown>{previewContent}</Markdown>
+            </div>
+          ) : (
+            <pre className="font-mono text-sm whitespace-pre-wrap break-words max-w-4xl mx-auto">
+              {previewContent}
+            </pre>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Card className="w-full">
       <CardHeader>
@@ -313,35 +345,6 @@ export function S3FileManager() {
             </tbody>
           </table>
         </div>
-
-        {/* Preview Modal */}
-        {previewFile && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-background rounded-lg shadow-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
-              <div className="flex items-center justify-between p-4 border-b">
-                <h2 className="text-lg font-semibold truncate pr-4">{previewFile}</h2>
-                <Button variant="ghost" size="sm" onClick={closePreview}>
-                  Close
-                </Button>
-              </div>
-              <div className="flex-1 overflow-auto p-4">
-                {previewLoading ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    Loading...
-                  </div>
-                ) : isMarkdown(previewFile) ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none">
-                    <Markdown>{previewContent}</Markdown>
-                  </div>
-                ) : (
-                  <pre className="font-mono text-sm whitespace-pre-wrap break-words">
-                    {previewContent}
-                  </pre>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
