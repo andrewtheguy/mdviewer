@@ -503,11 +503,15 @@ export function S3FileManager() {
           <div>
             <CardTitle>Markdown Viewer</CardTitle>
             <CardDescription>Browse and view markdown or text files</CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={handleShowRecent} variant={isRecentMode ? "default" : "outline"} size="sm">
+            <Button
+              onClick={handleShowRecent}
+              variant="link"
+              className={`p-0 h-auto mt-1 ${isRecentMode ? "text-primary font-medium" : "text-muted-foreground"}`}
+            >
               Recent
             </Button>
+          </div>
+          <div className="flex items-center gap-2">
             <Button onClick={handleReindex} disabled={isReindexing} variant="outline" size="sm">
               {isReindexing ? (
                 <>
