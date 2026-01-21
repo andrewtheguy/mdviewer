@@ -1,6 +1,8 @@
 import { serve } from "bun";
 import index from "./index.html";
 import { s3 } from "./lib/s3";
+import { getIndex } from "./lib/meilisearch";
+import { fullReindex, getIndexStats } from "./lib/indexer";
 
 // Decode base64 URL-safe encoded key
 function decodeKey(encoded: string): string {
@@ -153,6 +155,74 @@ const server = serve({
         } catch (error) {
           return Response.json(
             { error: error instanceof Error ? error.message : "Failed to preview file" },
+            { status: 500 }
+          );
+        }
+      },
+    },
+
+    // Search API Routes
+    "/api/search": {
+      async GET(req) {
+        try {
+          const url = new URL(req.url);
+          const query = url.searchParams.get("q") || "";
+          const limit = parseInt(url.searchParams.get("limit") || "20", 10);
+          const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+          if (!query.trim()) {
+            return Response.json({ hits: [], query: "", totalHits: 0 });
+          }
+
+          const searchIndex = await getIndex();
+          const results = await searchIndex.search(query, {
+            limit,
+            offset,
+            attributesToHighlight: ["name", "content"],
+            highlightPreTag: "<mark>",
+            highlightPostTag: "</mark>",
+          });
+
+          return Response.json({
+            hits: results.hits,
+            query: results.query,
+            totalHits: results.estimatedTotalHits || results.hits.length,
+            processingTimeMs: results.processingTimeMs,
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Search failed" },
+            { status: 500 }
+          );
+        }
+      },
+    },
+
+    "/api/search/reindex": {
+      async POST() {
+        try {
+          const result = await fullReindex();
+          return Response.json({
+            success: true,
+            ...result,
+          });
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Reindex failed" },
+            { status: 500 }
+          );
+        }
+      },
+    },
+
+    "/api/search/stats": {
+      async GET() {
+        try {
+          const stats = await getIndexStats();
+          return Response.json(stats);
+        } catch (error) {
+          return Response.json(
+            { error: error instanceof Error ? error.message : "Failed to get stats" },
             { status: 500 }
           );
         }

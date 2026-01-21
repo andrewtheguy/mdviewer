@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
+import { SearchBar } from "@/components/SearchBar";
+import { SearchResults, type SearchHit } from "@/components/SearchResults";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -97,6 +99,13 @@ export function S3FileManager() {
   };
 
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
+  const [searchTotalHits, setSearchTotalHits] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isSearchMode, setIsSearchMode] = useState(false);
 
   const isPreviewable = (key: string): boolean => {
     const ext = key.toLowerCase().split(".").pop();
@@ -218,6 +227,53 @@ export function S3FileManager() {
     }
   }, []);
 
+  // Search handlers
+  const handleSearch = useCallback(async (query: string) => {
+    setSearchQuery(query);
+
+    if (!query.trim()) {
+      setIsSearchMode(false);
+      setSearchResults([]);
+      setSearchTotalHits(0);
+      return;
+    }
+
+    setIsSearchMode(true);
+    setIsSearching(true);
+
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+
+      if (data.error) {
+        setError(data.error);
+        setSearchResults([]);
+        setSearchTotalHits(0);
+      } else {
+        setSearchResults(data.hits || []);
+        setSearchTotalHits(data.totalHits || 0);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+      setSearchResults([]);
+      setSearchTotalHits(0);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchTotalHits(0);
+    setIsSearchMode(false);
+  }, []);
+
+  const handleNavigateToFolderFromSearch = useCallback((path: string) => {
+    handleClearSearch();
+    navigateToFolder(path);
+  }, [handleClearSearch]);
+
   // Handle browser back/forward
   useEffect(() => {
     const handlePopState = () => {
@@ -304,6 +360,26 @@ export function S3FileManager() {
           </div>
         )}
 
+        {/* Search Bar */}
+        <SearchBar
+          onSearch={handleSearch}
+          onClear={handleClearSearch}
+          isSearching={isSearching}
+          initialQuery={searchQuery}
+        />
+
+        {/* Search Results */}
+        {isSearchMode ? (
+          <SearchResults
+            hits={searchResults}
+            query={searchQuery}
+            totalHits={searchTotalHits}
+            onPreview={handlePreview}
+            onDownload={handleDownload}
+            onNavigateToFolder={handleNavigateToFolderFromSearch}
+          />
+        ) : (
+          <>
         {/* Breadcrumb Navigation */}
         <div className="flex items-center gap-1 text-sm flex-wrap">
           <button
@@ -473,6 +549,8 @@ export function S3FileManager() {
             </tbody>
           </table>
         </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
