@@ -91,10 +91,14 @@ const server = serve({
           const data = await s3File.arrayBuffer();
           const contentType = s3File.type || "application/octet-stream";
 
+          // Extract basename and encode for Content-Disposition header (RFC 5987)
+          const basename = key.split("/").pop() || key;
+          const encodedFilename = encodeURIComponent(basename).replace(/'/g, "%27");
+
           return new Response(data, {
             headers: {
               "Content-Type": contentType,
-              "Content-Disposition": `attachment; filename="${key}"`,
+              "Content-Disposition": `attachment; filename*=UTF-8''${encodedFilename}`,
             },
           });
         } catch (error) {
