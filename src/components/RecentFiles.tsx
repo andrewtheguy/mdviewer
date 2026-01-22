@@ -138,20 +138,20 @@ export function RecentFiles({
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 shrink-0" />
                         <span className="break-all font-medium">
-                          {file.title || file.name}
+                          {file.name}
                         </span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap">
                           ({formatBytes(file.size)})
                         </span>
                       </div>
+                      {file.title && (
+                        <span className="text-xs text-muted-foreground break-all">
+                          {file.title}
+                        </span>
+                      )}
                       {file.collection && (
                         <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
                           {file.collection}
-                        </span>
-                      )}
-                      {file.path && (
-                        <span className="text-xs text-muted-foreground break-all">
-                          /{file.path}
                         </span>
                       )}
                       <div className="sm:hidden flex flex-col gap-0.5 mt-1 text-muted-foreground">
