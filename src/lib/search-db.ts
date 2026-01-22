@@ -51,6 +51,38 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
+export function closeDatabase(): void {
+  if (db) {
+    db.close();
+    db = null;
+  }
+}
+
+// Register exit handlers once
+let exitHandlersRegistered = false;
+
+function registerExitHandlers(): void {
+  if (exitHandlersRegistered) return;
+  exitHandlersRegistered = true;
+
+  process.on("exit", () => {
+    closeDatabase();
+  });
+
+  process.on("SIGINT", () => {
+    closeDatabase();
+    process.exit(0);
+  });
+
+  process.on("SIGTERM", () => {
+    closeDatabase();
+    process.exit(0);
+  });
+}
+
+// Register handlers on module load
+registerExitHandlers();
+
 function initializeSchema(database: Database.Database): void {
   database.exec(`
     -- Main documents table
@@ -133,11 +165,23 @@ export interface SearchOptions {
   offset?: number;
 }
 
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+function validatePaginationParam(value: number | undefined, defaultValue: number, max?: number): number {
+  if (value === undefined || value === null) return defaultValue;
+  const num = Number(value);
+  if (!Number.isFinite(num) || !Number.isInteger(num) || num < 0) return defaultValue;
+  if (max !== undefined && num > max) return max;
+  return num;
+}
+
 export function search(query: string, options: SearchOptions = {}): SearchResult {
   const startTime = performance.now();
   const database = getDatabase();
 
-  const { limit = 20, offset = 0 } = options;
+  const limit = validatePaginationParam(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0);
 
   const ftsQuery = prepareFtsQuery(query);
   if (!ftsQuery) {
@@ -301,12 +345,4 @@ export function getStats(): IndexStats {
     numberOfDocuments: result.count,
     isIndexing: false, // SQLite is synchronous, no background indexing
   };
-}
-
-// Close database connection (for cleanup)
-export function closeDatabase(): void {
-  if (db) {
-    db.close();
-    db = null;
-  }
 }
