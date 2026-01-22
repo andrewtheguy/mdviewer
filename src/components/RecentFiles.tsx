@@ -119,13 +119,7 @@ export function RecentFiles({
             </tr>
           </thead>
           <tbody>
-            {files.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="p-6 text-center text-muted-foreground">
-                  No {typeFilter === "all" ? "" : `.${typeFilter} `}files found
-                </td>
-              </tr>
-            ) : files.map((file) => {
+            {files.map((file) => {
               const displayDate = file.creationDate ?? file.lastModified;
               return (
                 <tr
