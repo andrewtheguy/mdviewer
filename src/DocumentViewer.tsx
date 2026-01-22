@@ -135,6 +135,7 @@ export function DocumentViewer() {
   const [previewContent, setPreviewContent] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewMetadata, setPreviewMetadata] = useState<PreviewMetadata | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewFromQueryParam);
 
@@ -261,13 +262,13 @@ export function DocumentViewer() {
     setPreviewFile(key);
   };
 
-  const loadPreviewContent = useCallback(async (key: string) => {
+  const loadPreviewContent = useCallback(async (key: string, signal?: AbortSignal) => {
     setPreviewLoading(true);
     setPreviewContent("");
     setPreviewMetadata(null);
-    setError(null);
+    setPreviewError(null);
     try {
-      const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`);
+      const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`, { signal });
       if (!response.ok) {
         let errorMessage = "Failed to preview file";
         try {
@@ -276,10 +277,11 @@ export function DocumentViewer() {
         } catch {
           errorMessage = response.statusText || errorMessage;
         }
-        setPreviewContent(`Error: ${errorMessage}`);
+        setPreviewError(errorMessage);
         return;
       }
       const data = await response.json();
+      setPreviewError(null);
       setPreviewContent(data.content);
       setPreviewMetadata({
         collection: data.collection,
@@ -288,9 +290,16 @@ export function DocumentViewer() {
         creationDateISO: data.creationDateISO,
       });
     } catch (err) {
-      setPreviewContent(`Error: ${err instanceof Error ? err.message : "Failed to preview file"}`);
+      // Don't set error state if the request was aborted
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
+      setPreviewError(err instanceof Error ? err.message : "Failed to preview file");
     } finally {
-      setPreviewLoading(false);
+      // Don't clear loading state if aborted (a new request may be in flight)
+      if (!signal?.aborted) {
+        setPreviewLoading(false);
+      }
     }
   }, []);
 
@@ -605,6 +614,7 @@ export function DocumentViewer() {
       setPreviewFile(null);
       setPreviewContent("");
       setPreviewMetadata(null);
+      setPreviewError(null);
     }
 
     const urlQuery = getSearchQueryFromURL();
@@ -673,6 +683,7 @@ export function DocumentViewer() {
     setPreviewContent("");
     setPreviewMetadata(null);
     setPreviewLoading(false);
+    setPreviewError(null);
   }, []);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
@@ -729,9 +740,14 @@ export function DocumentViewer() {
 
   // Load content when preview file changes
   useEffect(() => {
-    if (previewFile) {
-      loadPreviewContent(previewFile);
+    if (!previewFile) {
+      return;
     }
+    const controller = new AbortController();
+    loadPreviewContent(previewFile, controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [previewFile, loadPreviewContent]);
 
   // Get file name from full key
@@ -836,13 +852,17 @@ export function DocumentViewer() {
                     </span>
                   )}
                 </div>
-                <Button variant="ghost" size="icon" onClick={closePreview} className="size-8">
+                <Button variant="ghost" size="icon" onClick={closePreview} className="size-8" aria-label="Close preview">
                   <X className="size-4" />
                 </Button>
               </div>
               <div className="p-3 sm:p-6 max-h-[70vh] overflow-auto">
                 {previewLoading ? (
                   <div className="text-center text-muted-foreground py-8">Loading...</div>
+                ) : previewError ? (
+                  <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
+                    {previewError}
+                  </div>
                 ) : isMarkdown(previewFile) ? (
                   <div className="prose prose-neutral dark:prose-invert max-w-none prose-ul:list-disc prose-ol:list-decimal prose-li:my-1">
                     <Markdown>{previewContent}</Markdown>
