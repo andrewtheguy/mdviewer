@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/Pagination";
-import { Eye, Download, FileText } from "lucide-react";
+import { Eye, Download, FileText, ChevronLeft } from "lucide-react";
 
 export interface RecentFile {
   key: string;
@@ -93,27 +93,29 @@ export function RecentFiles({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-muted-foreground">
-            Showing {files.length} of {totalFiles} file{totalFiles !== 1 ? "s" : ""}
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 p-3 rounded-lg border">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+          <div className="text-sm font-medium">
+            Recent Files <span className="text-muted-foreground font-normal">({totalFiles})</span>
           </div>
+          <div className="h-px sm:h-4 w-full sm:w-px bg-border hidden sm:block" />
           <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Type:</span>
+            <span className="text-sm text-muted-foreground whitespace-nowrap">Filter:</span>
             <select
               value={typeFilter}
               onChange={(e) => onTypeFilterChange(e.target.value as FileTypeFilter)}
-              className="text-sm border rounded px-2 py-1 bg-background"
+              className="text-sm border rounded px-2 py-1 bg-background h-8"
             >
-              <option value="all">All</option>
-              <option value="txt">.txt only</option>
-              <option value="md">.md only</option>
+              <option value="all">All Types</option>
+              <option value="txt">.txt</option>
+              <option value="md">.md</option>
             </select>
           </div>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Back to browse
+        <Button variant="ghost" size="sm" onClick={onClose} className="w-full sm:w-auto gap-2">
+          <ChevronLeft className="size-4" />
+          Back to Browse
         </Button>
       </div>
 

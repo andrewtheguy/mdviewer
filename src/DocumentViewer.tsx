@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
 import { Pagination } from "@/components/Pagination";
-import { Eye, Download, FileText, Folder, ChevronLeft, Loader2 } from "lucide-react";
+import { Eye, Download, FileText, Folder, ChevronLeft, Loader2, House, Clock, RotateCw, RefreshCw } from "lucide-react";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -593,52 +593,86 @@ export function DocumentViewer() {
   }
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Markdown Viewer</CardTitle>
+    <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
+      <CardHeader className="px-4 pb-2 sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
             <CardDescription>Browse and view markdown or text files</CardDescription>
-            <Button
-              onClick={handleShowRecent}
-              variant="link"
-              className={`p-0 h-auto mt-1 ${isRecentMode ? "text-primary font-medium" : "text-muted-foreground"}`}
-            >
-              Recent
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={handleReindex} disabled={isReindexing} variant="outline" size="sm">
-              {isReindexing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Reindexing...
-                </>
-              ) : (
-                "Reindex"
-              )}
-            </Button>
-            <Button onClick={handleRefresh} disabled={loading} variant="outline" size="sm">
-              {loading ? "Loading..." : "Refresh"}
-            </Button>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="p-0 sm:p-6 space-y-4">
         {error && (
-          <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
+          <div className="mx-4 sm:mx-0 p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
             {error}
           </div>
         )}
 
-        {/* Search Bar */}
-        <SearchBar
-          onSearch={handleSearch}
-          onClear={handleClearSearch}
-          isSearching={isSearching}
-          initialQuery={searchQuery}
-        />
+        <div className="px-4 sm:px-0 flex flex-col gap-3">
+           {/* Actions Toolbar */}
+          <div className="flex flex-wrap items-center gap-2">
+             <Button
+              variant={!isRecentMode && !isSearchMode ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => navigateToFolder("")}
+              className="gap-2"
+            >
+              <House className="size-4" />
+              <span className="hidden sm:inline">Browse</span>
+            </Button>
 
+            <Button
+              variant={isRecentMode ? "secondary" : "ghost"}
+              size="sm"
+              onClick={handleShowRecent}
+              className="gap-2"
+            >
+              <Clock className="size-4" />
+              <span className="hidden sm:inline">Recent</span>
+            </Button>
+
+            <div className="w-px h-4 bg-border mx-1" />
+
+            <Button
+              onClick={handleReindex}
+              disabled={isReindexing}
+              variant="ghost"
+              size="sm"
+              className="gap-2"
+              title="Reindex Search"
+            >
+               {isReindexing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RotateCw className="size-4" />
+              )}
+              <span className="hidden sm:inline">Reindex</span>
+            </Button>
+
+             <Button
+              onClick={handleRefresh}
+              disabled={loading}
+              variant="ghost"
+              size="sm"
+              className="gap-2"
+              title="Refresh"
+            >
+              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+          </div>
+
+          {/* Search Bar */}
+          <SearchBar
+            onSearch={handleSearch}
+            onClear={handleClearSearch}
+            isSearching={isSearching}
+            initialQuery={searchQuery}
+          />
+        </div>
+
+        <div className="px-4 sm:px-0">
         {/* Search Results */}
         {isSearchMode ? (
           <SearchResults
@@ -821,6 +855,7 @@ export function DocumentViewer() {
         )}
           </>
         )}
+        </div>
       </CardContent>
     </Card>
   );
