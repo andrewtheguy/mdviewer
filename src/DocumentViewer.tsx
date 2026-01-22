@@ -6,6 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
 import { Pagination } from "@/components/Pagination";
+import { Eye, Download, FileText, Folder, ChevronLeft, Loader2 } from "lucide-react";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -567,9 +568,7 @@ export function DocumentViewer() {
       <div className="fixed inset-0 bg-background z-50 flex flex-col">
         <div className="flex items-center gap-3 p-4 border-b bg-background">
           <Button variant="ghost" size="sm" onClick={closePreview} className="gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m15 18-6-6 6-6"/>
-            </svg>
+            <ChevronLeft className="size-4" />
             Back
           </Button>
           <h1 className="text-sm font-medium truncate flex-1">{previewFile}</h1>
@@ -612,26 +611,7 @@ export function DocumentViewer() {
             <Button onClick={handleReindex} disabled={isReindexing} variant="outline" size="sm">
               {isReindexing ? (
                 <>
-                  <svg
-                    className="animate-spin -ml-1 mr-2 h-4 w-4"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    />
-                  </svg>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Reindexing...
                 </>
               ) : (
@@ -716,7 +696,7 @@ export function DocumentViewer() {
         </div>
 
         {/* File List */}
-        <div className="border rounded-lg overflow-hidden">
+        <div className="border rounded-lg overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
@@ -733,9 +713,7 @@ export function DocumentViewer() {
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                      </svg>
+                      <Folder className="size-4" />
                       <span>..</span>
                     </div>
                   </td>
@@ -754,9 +732,7 @@ export function DocumentViewer() {
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                      </svg>
+                      <Folder className="size-4" />
                       <span className="break-all">{folder}</span>
                     </div>
                   </td>
@@ -779,10 +755,7 @@ export function DocumentViewer() {
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-                        <polyline points="14 2 14 8 20 8"/>
-                      </svg>
+                      <FileText className="size-4 shrink-0" />
                       <span className="break-all">{getFileName(obj.key)}</span>
                       <span className="text-muted-foreground text-xs whitespace-nowrap">
                         ({formatBytes(obj.size)})
@@ -790,24 +763,28 @@ export function DocumentViewer() {
                     </div>
                   </td>
                   <td
-                    className="p-3 text-right space-x-2"
+                    className="p-3 text-right space-x-1 whitespace-nowrap"
                     onClick={(e) => e.stopPropagation()}
                   >
                     {isPreviewable(obj.key) && (
                       <Button
-                        size="sm"
-                        variant="outline"
+                        size="icon"
+                        variant="ghost"
+                        className="h-8 w-8"
                         onClick={() => handlePreview(obj.key)}
+                        title="Preview"
                       >
-                        Preview
+                        <Eye className="size-4" />
                       </Button>
                     )}
                     <Button
-                      size="sm"
-                      variant="outline"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
                       onClick={() => handleDownload(obj.key)}
+                      title="Download"
                     >
-                      Download
+                      <Download className="size-4" />
                     </Button>
                   </td>
                 </tr>

@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/Pagination";
+import { Eye, Download, FileText } from "lucide-react";
 
 export interface RecentFile {
   key: string;
@@ -116,12 +117,12 @@ export function RecentFiles({
         </Button>
       </div>
 
-      <div className="border rounded-lg overflow-hidden">
+      <div className="border rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left p-3 font-medium">File</th>
-              <th className="text-left p-3 font-medium">Last Updated</th>
+              <th className="text-left p-3 font-medium hidden sm:table-cell">Last Updated</th>
               <th className="text-right p-3 font-medium">Actions</th>
             </tr>
           </thead>
@@ -142,20 +143,7 @@ export function RecentFiles({
                   <td className="p-3">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                          <polyline points="14 2 14 8 20 8" />
-                        </svg>
+                        <FileText className="size-4 shrink-0" />
                         <span className="break-all">{file.name}</span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap">
                           ({formatBytes(file.size)})
@@ -167,14 +155,19 @@ export function RecentFiles({
                             e.stopPropagation();
                             onNavigateToFolder(file.path);
                           }}
-                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left"
+                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left break-all"
                         >
                           /{file.path}
                         </button>
                       )}
+                      <div className="sm:hidden flex flex-col gap-0.5 mt-1 text-muted-foreground">
+                        <span className="text-xs font-medium text-foreground">
+                          Updated {getRelativeTime(file.lastModified)}
+                        </span>
+                      </div>
                     </div>
                   </td>
-                  <td className="p-3">
+                  <td className="p-3 hidden sm:table-cell">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-sm">{getRelativeTime(file.lastModified)}</span>
                       <span className="text-xs text-muted-foreground">
@@ -183,22 +176,26 @@ export function RecentFiles({
                     </div>
                   </td>
                   <td
-                    className="p-3 text-right space-x-2 whitespace-nowrap"
+                    className="p-3 text-right space-x-1 whitespace-nowrap"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Button
-                      size="sm"
-                      variant="outline"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
                       onClick={() => onPreview(file.key)}
+                      title="Preview"
                     >
-                      Preview
+                      <Eye className="size-4" />
                     </Button>
                     <Button
-                      size="sm"
-                      variant="outline"
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
                       onClick={() => onDownload(file.key)}
+                      title="Download"
                     >
-                      Download
+                      <Download className="size-4" />
                     </Button>
                   </td>
                 </tr>
