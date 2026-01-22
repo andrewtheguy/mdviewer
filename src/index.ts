@@ -47,8 +47,16 @@ async function fetchWithTimeout<T = unknown>(
       };
     }
 
-    const data = await response.json() as T;
-    return { ok: true, data, status: response.status };
+    try {
+      const data = await response.json() as T;
+      return { ok: true, data, status: response.status };
+    } catch (parseError) {
+      return {
+        ok: false,
+        error: parseError instanceof SyntaxError ? "Invalid JSON response" : "Failed to parse response",
+        status: response.status,
+      };
+    }
   } catch (error) {
     clearTimeout(timeoutId);
 
@@ -71,7 +79,7 @@ app.get("/api/s3/list", async (_req, res) => {
     const objects = (result.contents || []).map((obj) => ({
       key: obj.key,
       size: obj.size || 0,
-      lastModified: obj.lastModified || new Date().toISOString(),
+      lastModified: obj.lastModified ?? null,
     }));
     res.json({ objects });
   } catch (error) {

@@ -66,17 +66,35 @@ function registerExitHandlers(): void {
   exitHandlersRegistered = true;
 
   process.on("exit", () => {
-    closeDatabase();
+    try {
+      closeDatabase();
+    } catch (error) {
+      console.error("Error closing database on exit:", error);
+    }
   });
 
   process.on("SIGINT", () => {
-    closeDatabase();
-    process.exit(0);
+    let exitCode = 0;
+    try {
+      closeDatabase();
+    } catch (error) {
+      console.error("Error closing database on SIGINT:", error);
+      exitCode = 1;
+    } finally {
+      process.exit(exitCode);
+    }
   });
 
   process.on("SIGTERM", () => {
-    closeDatabase();
-    process.exit(0);
+    let exitCode = 0;
+    try {
+      closeDatabase();
+    } catch (error) {
+      console.error("Error closing database on SIGTERM:", error);
+      exitCode = 1;
+    } finally {
+      process.exit(exitCode);
+    }
   });
 }
 
@@ -167,6 +185,7 @@ export interface SearchOptions {
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+const MAX_OFFSET = 10000;
 
 function validatePaginationParam(value: number | undefined, defaultValue: number, max?: number): number {
   if (value === undefined || value === null) return defaultValue;
@@ -181,7 +200,7 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
   const database = getDatabase();
 
   const limit = validatePaginationParam(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
-  const offset = validatePaginationParam(options.offset, 0);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
   const ftsQuery = prepareFtsQuery(query);
   if (!ftsQuery) {
