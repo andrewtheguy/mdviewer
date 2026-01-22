@@ -399,3 +399,207 @@ export function getStats(): IndexStats {
     isIndexing: false, // SQLite is synchronous, no background indexing
   };
 }
+
+export interface ListDocumentsOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListDocumentsResult {
+  objects: Array<{ key: string; size: number; lastModified: string | null }>;
+  total: number;
+}
+
+// List all documents with pagination (for /api/documents/list)
+export function listDocuments(options: ListDocumentsOptions = {}): ListDocumentsResult {
+  const database = getDatabase();
+
+  // Get total count
+  const countStmt = database.prepare("SELECT COUNT(*) as count FROM documents");
+  const countResult = countStmt.get() as { count: number };
+  const total = countResult.count;
+
+  const limit = validatePaginationParam(options.limit, 100, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
+  const stmt = database.prepare(`
+    SELECT key, size, last_modified_iso as lastModified
+    FROM documents
+    ORDER BY key ASC
+    LIMIT ? OFFSET ?
+  `);
+  const objects = stmt.all(limit, offset) as Array<{ key: string; size: number; lastModified: string | null }>;
+
+  return { objects, total };
+}
+
+export interface RecentDocumentsOptions {
+  limit?: number;
+  offset?: number;
+  type?: "all" | "txt" | "md";
+}
+
+export interface RecentDocument {
+  key: string;
+  name: string;
+  path: string;
+  size: number;
+  lastModified: number | null;
+  lastModifiedISO: string | null;
+}
+
+// Get recent documents with pagination/filtering (for /api/documents/recent)
+export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
+  files: RecentDocument[];
+  totalFiles: number;
+} {
+  const database = getDatabase();
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+  const typeFilter = options.type ?? "all";
+
+  // Build WHERE clause based on type filter (parameterized)
+  let whereClause = "";
+  const filterParams: string[] = [];
+  if (typeFilter === "txt" || typeFilter === "md") {
+    whereClause = "WHERE extension = ?";
+    filterParams.push(typeFilter);
+  }
+
+  // Get total count
+  const countStmt = database.prepare(`SELECT COUNT(*) as count FROM documents ${whereClause}`);
+  const countResult = countStmt.get(...filterParams) as { count: number };
+  const totalFiles = countResult.count;
+
+  // Get paginated results sorted by most recent first
+  const stmt = database.prepare(`
+    SELECT key, name, path, size, last_modified as lastModified, last_modified_iso as lastModifiedISO
+    FROM documents
+    ${whereClause}
+    ORDER BY last_modified DESC
+    LIMIT ? OFFSET ?
+  `);
+
+  const rows = stmt.all(...filterParams, limit, offset) as Array<{
+    key: string;
+    name: string;
+    path: string;
+    size: number;
+    lastModified: number | null;
+    lastModifiedISO: string | null;
+  }>;
+
+  return {
+    files: rows,
+    totalFiles,
+  };
+}
+
+export interface DocumentRecord {
+  key: string;
+  name: string;
+  extension: string;
+  content: string;
+  size: number;
+}
+
+// Get single document by key (for /api/documents/download and /api/documents/preview)
+export function getDocument(key: string): DocumentRecord | null {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    SELECT key, name, extension, content, size
+    FROM documents
+    WHERE key = ?
+  `);
+  const result = stmt.get(key) as DocumentRecord | undefined;
+  return result ?? null;
+}
+
+export interface BrowseFolderOptions {
+  path: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BrowseFolderResult {
+  folders: string[];
+  files: Array<{ key: string; size: number; lastModified: string | null }>;
+  totalFolders: number;
+  totalFiles: number;
+}
+
+// Escape LIKE wildcards for literal matching
+function escapeLikePattern(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+// Browse a folder - returns subfolders and paginated files at the given path
+export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
+  const database = getDatabase();
+  const { path } = options;
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
+  // Build prefix for path matching
+  // If path is empty (root), we match all keys
+  // If path is "foo", we match "foo/..." but not "foobar/..."
+  const prefix = path ? path + "/" : "";
+  const prefixLen = prefix.length;
+
+  // Escape LIKE wildcards in the prefix for literal matching
+  const escapedPrefix = escapeLikePattern(prefix);
+
+  // Query for files at this level: keys that match prefix but don't have another slash
+  // i.e., key LIKE 'prefix%' AND key NOT LIKE 'prefix%/%'
+  const filesCountStmt = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM documents
+    WHERE key LIKE ? ESCAPE '\\'
+      AND key NOT LIKE ? ESCAPE '\\'
+  `);
+  const filesCountResult = filesCountStmt.get(
+    escapedPrefix + "%",
+    escapedPrefix + "%/_%"
+  ) as { count: number };
+  const totalFiles = filesCountResult.count;
+
+  const filesStmt = database.prepare(`
+    SELECT key, size, last_modified_iso as lastModified
+    FROM documents
+    WHERE key LIKE ? ESCAPE '\\'
+      AND key NOT LIKE ? ESCAPE '\\'
+    ORDER BY key ASC
+    LIMIT ? OFFSET ?
+  `);
+  const files = filesStmt.all(
+    escapedPrefix + "%",
+    escapedPrefix + "%/_%",
+    limit,
+    offset
+  ) as Array<{ key: string; size: number; lastModified: string | null }>;
+
+  // Query for distinct folder names: extract first path segment after prefix
+  // for keys that have at least one more slash after the prefix
+  const foldersStmt = database.prepare(`
+    SELECT DISTINCT substr(key, ? + 1, instr(substr(key, ? + 1), '/') - 1) as folder
+    FROM documents
+    WHERE key LIKE ? ESCAPE '\\'
+      AND instr(substr(key, ? + 1), '/') > 0
+    ORDER BY folder ASC
+  `);
+  const folderRows = foldersStmt.all(
+    prefixLen,
+    prefixLen,
+    escapedPrefix + "%",
+    prefixLen
+  ) as Array<{ folder: string }>;
+  const folders = folderRows.map(row => row.folder);
+  const totalFolders = folders.length;
+
+  return {
+    folders,
+    files,
+    totalFolders,
+    totalFiles,
+  };
+}

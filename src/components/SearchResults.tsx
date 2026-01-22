@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Pagination } from "@/components/Pagination";
 
 export interface SearchHit {
   id: string;
@@ -23,6 +24,9 @@ interface SearchResultsProps {
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
   onNavigateToFolder: (path: string) => void;
+  onLoadMore: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -49,6 +53,9 @@ export function SearchResults({
   onPreview,
   onDownload,
   onNavigateToFolder,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: SearchResultsProps) {
   if (hits.length === 0) {
     return (
@@ -147,6 +154,14 @@ export function SearchResults({
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        current={hits.length}
+        total={totalHits}
+        loading={loadingMore}
+        hasMore={hasMore}
+        onLoadMore={onLoadMore}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Markdown from "react-markdown";
 import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
+import { Pagination } from "@/components/Pagination";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -14,22 +15,36 @@ function encodeKey(key: string): string {
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-interface S3Object {
+interface DocumentItem {
   key: string;
   size: number;
-  lastModified: string;
+  lastModified: string | null;
 }
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
+
+  // Handle negative values
+  const sign = bytes < 0 ? "-" : "";
+  const absBytes = Math.abs(bytes);
+
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
 
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleString();
+  // For fractions < 1, Math.log would be negative, so force i = 0
+  // For very large values, clamp i to avoid indexing past sizes array
+  let i: number;
+  if (absBytes < 1) {
+    i = 0;
+  } else {
+    i = Math.min(
+      Math.floor(Math.log(absBytes) / Math.log(k)),
+      sizes.length - 1
+    );
+  }
+
+  const value = parseFloat((absBytes / Math.pow(k, i)).toFixed(2));
+  return sign + value + " " + sizes[i];
 }
 
 // Decode base64 URL-safe key
@@ -67,47 +82,34 @@ function isRecentViewFromURL(): boolean {
   return window.location.pathname === "/recent";
 }
 
-// Process flat S3 keys into folder/file structure at a given path
-function getItemsAtPath(objects: S3Object[], path: string) {
-  const prefix = path ? path + "/" : "";
-  const folders = new Set<string>();
-  const files: S3Object[] = [];
-
-  for (const obj of objects) {
-    if (!obj.key.startsWith(prefix)) continue;
-    const remainder = obj.key.slice(prefix.length);
-    if (remainder === "") continue; // Skip if exact match (the folder itself)
-    const slashIndex = remainder.indexOf("/");
-
-    if (slashIndex === -1) {
-      files.push(obj); // It's a file at this level
-    } else {
-      folders.add(remainder.slice(0, slashIndex)); // It's a folder
+// Get preview key from URL
+function getPreviewKeyFromURL(): string | null {
+  const match = window.location.pathname.match(/^\/preview\/(.+)$/);
+  if (match && match[1]) {
+    try {
+      return decodeKey(match[1]);
+    } catch {
+      return null;
     }
   }
-  return { folders: Array.from(folders).sort(), files };
+  return null;
 }
 
-export function S3FileManager() {
-  const [objects, setObjects] = useState<S3Object[]>([]);
+const PAGE_SIZE = 50;
+
+export function DocumentViewer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewContent, setPreviewContent] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [currentPath, setCurrentPath] = useState<string>(getFolderPathFromURL);
 
-  // Get preview key from URL
-  const getPreviewKeyFromURL = (): string | null => {
-    const match = window.location.pathname.match(/^\/preview\/(.+)$/);
-    if (match && match[1]) {
-      try {
-        return decodeKey(match[1]);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  };
+  // Browse view state
+  const [folders, setFolders] = useState<string[]>([]);
+  const [files, setFiles] = useState<DocumentItem[]>([]);
+  const [totalFiles, setTotalFiles] = useState(0);
+  const [browseOffset, setBrowseOffset] = useState(0);
+  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
 
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
 
@@ -118,6 +120,8 @@ export function S3FileManager() {
   const [searchTotalHits, setSearchTotalHits] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(!!initialSearchQuery);
+  const [searchOffset, setSearchOffset] = useState(0);
+  const [loadingMoreSearch, setLoadingMoreSearch] = useState(false);
 
   // Reindex state
   const [isReindexing, setIsReindexing] = useState(false);
@@ -128,6 +132,8 @@ export function S3FileManager() {
   const [recentTotalFiles, setRecentTotalFiles] = useState(0);
   const [isLoadingRecent, setIsLoadingRecent] = useState(false);
   const [recentTypeFilter, setRecentTypeFilter] = useState<FileTypeFilter>("all");
+  const [recentOffset, setRecentOffset] = useState(0);
+  const [loadingMoreRecent, setLoadingMoreRecent] = useState(false);
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -159,27 +165,48 @@ export function S3FileManager() {
     return key.toLowerCase().endsWith(".md");
   };
 
-  const fetchObjects = useCallback(async () => {
-    setLoading(true);
+  // Fetch folder contents from API
+  const fetchFolder = useCallback(async (path: string, offset = 0, append = false) => {
+    if (!append) {
+      setLoading(true);
+    }
     setError(null);
     try {
-      const response = await fetch("/api/s3/list");
+      const response = await fetch(
+        `/api/documents/browse?path=${encodeURIComponent(path)}&limit=${PAGE_SIZE}&offset=${offset}`
+      );
       const data = await response.json();
       if (data.error) {
         setError(data.error);
       } else {
-        setObjects(data.objects || []);
+        setFolders(data.folders || []);
+        if (append) {
+          setFiles(prev => [...prev, ...(data.files || [])]);
+        } else {
+          setFiles(data.files || []);
+        }
+        setTotalFiles(data.totalFiles || 0);
+        setBrowseOffset(offset);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fetch objects");
+      setError(err instanceof Error ? err.message : "Failed to fetch folder");
     } finally {
       setLoading(false);
+      setLoadingMoreFiles(false);
     }
   }, []);
 
+  // Initial load and when path changes
   useEffect(() => {
-    fetchObjects();
-  }, [fetchObjects]);
+    if (!isSearchMode && !isRecentMode) {
+      fetchFolder(currentPath, 0);
+    }
+  }, [currentPath, isSearchMode, isRecentMode, fetchFolder]);
+
+  const handleLoadMoreFiles = useCallback(() => {
+    setLoadingMoreFiles(true);
+    fetchFolder(currentPath, browseOffset + PAGE_SIZE, true);
+  }, [currentPath, browseOffset, fetchFolder]);
 
   const handleReindex = useCallback(async () => {
     setError(null);
@@ -199,12 +226,27 @@ export function S3FileManager() {
     }
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    fetchFolder(currentPath, 0);
+  }, [currentPath, fetchFolder]);
+
   const handleDownload = async (key: string) => {
     try {
-      const response = await fetch(`/api/s3/download?key=${encodeKey(key)}`);
+      const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
       if (!response.ok) {
-        const data = await response.json();
-        setError(data.error || "Failed to download file");
+        let errorMessage = "Failed to download file";
+        try {
+          const bodyText = await response.text();
+          try {
+            const data = JSON.parse(bodyText);
+            errorMessage = data.error || bodyText || response.statusText || errorMessage;
+          } catch {
+            errorMessage = bodyText || response.statusText || errorMessage;
+          }
+        } catch {
+          errorMessage = response.statusText || errorMessage;
+        }
+        setError(errorMessage);
         return;
       }
 
@@ -240,24 +282,42 @@ export function S3FileManager() {
     setPreviewFile(key);
   };
 
-  const navigateToFolder = (path: string) => {
+  const navigateToFolder = useCallback((path: string) => {
     if (path) {
       window.history.pushState({}, "", `/folder/${encodeKey(path)}`);
     } else {
       window.history.pushState({}, "", "/");
     }
     setCurrentPath(path);
-  };
+    // Reset browse pagination
+    setBrowseOffset(0);
+  }, []);
+
+  const handleNavigateUp = useCallback(() => {
+    const parentPath = currentPath.split("/").slice(0, -1).join("/");
+    navigateToFolder(parentPath);
+  }, [currentPath, navigateToFolder]);
 
   const loadPreviewContent = useCallback(async (key: string) => {
     setPreviewLoading(true);
     setPreviewContent("");
     setError(null);
     try {
-      const response = await fetch(`/api/s3/preview?key=${encodeKey(key)}`);
+      const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`);
       if (!response.ok) {
-        const data = await response.json();
-        setPreviewContent(`Error: ${data.error || "Failed to preview file"}`);
+        let errorMessage = "Failed to preview file";
+        try {
+          const bodyText = await response.text();
+          try {
+            const data = JSON.parse(bodyText);
+            errorMessage = data.error || bodyText || response.statusText || errorMessage;
+          } catch {
+            errorMessage = bodyText || response.statusText || errorMessage;
+          }
+        } catch {
+          errorMessage = response.statusText || errorMessage;
+        }
+        setPreviewContent(`Error: ${errorMessage}`);
         return;
       }
       const content = await response.text();
@@ -270,6 +330,44 @@ export function S3FileManager() {
   }, []);
 
   // Search handlers
+  const performSearch = useCallback(async (query: string, offset: number, append = false) => {
+    if (!append) {
+      setIsSearching(true);
+    }
+
+    try {
+      const response = await fetch(
+        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`
+      );
+      const data = await response.json();
+
+      if (data.error) {
+        setError(data.error);
+        if (!append) {
+          setSearchResults([]);
+          setSearchTotalHits(0);
+        }
+      } else {
+        if (append) {
+          setSearchResults(prev => [...prev, ...(data.hits || [])]);
+        } else {
+          setSearchResults(data.hits || []);
+        }
+        setSearchTotalHits(data.totalHits || 0);
+        setSearchOffset(offset);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Search failed");
+      if (!append) {
+        setSearchResults([]);
+        setSearchTotalHits(0);
+      }
+    } finally {
+      setIsSearching(false);
+      setLoadingMoreSearch(false);
+    }
+  }, []);
+
   const handleSearch = useCallback(async (query: string, updateUrl = true) => {
     setSearchQuery(query);
 
@@ -277,6 +375,7 @@ export function S3FileManager() {
       setIsSearchMode(false);
       setSearchResults([]);
       setSearchTotalHits(0);
+      setSearchOffset(0);
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.delete("q");
@@ -293,33 +392,20 @@ export function S3FileManager() {
     }
 
     setIsSearchMode(true);
-    setIsSearching(true);
+    setSearchOffset(0);
+    performSearch(query, 0);
+  }, [performSearch]);
 
-    try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      const data = await response.json();
-
-      if (data.error) {
-        setError(data.error);
-        setSearchResults([]);
-        setSearchTotalHits(0);
-      } else {
-        setSearchResults(data.hits || []);
-        setSearchTotalHits(data.totalHits || 0);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
-      setSearchResults([]);
-      setSearchTotalHits(0);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
+  const handleLoadMoreSearch = useCallback(() => {
+    setLoadingMoreSearch(true);
+    performSearch(searchQuery, searchOffset + PAGE_SIZE, true);
+  }, [searchQuery, searchOffset, performSearch]);
 
   const handleClearSearch = useCallback(() => {
     setSearchQuery("");
     setSearchResults([]);
     setSearchTotalHits(0);
+    setSearchOffset(0);
     setIsSearchMode(false);
     // Clear URL query param
     const url = new URL(window.location.href);
@@ -330,42 +416,63 @@ export function S3FileManager() {
   const handleNavigateToFolderFromSearch = useCallback((path: string) => {
     handleClearSearch();
     navigateToFolder(path);
-  }, [handleClearSearch]);
+  }, [handleClearSearch, navigateToFolder]);
 
   // Recent files handlers
-  const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all") => {
-    setIsLoadingRecent(true);
+  const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all", offset = 0, append = false) => {
+    if (!append) {
+      setIsLoadingRecent(true);
+    }
     try {
-      const response = await fetch(`/api/s3/recent?limit=50&type=${typeFilter}`);
+      const response = await fetch(
+        `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`
+      );
       const data = await response.json();
       if (data.error) {
         setError(data.error);
-        setRecentFiles([]);
-        setRecentTotalFiles(0);
+        if (!append) {
+          setRecentFiles([]);
+          setRecentTotalFiles(0);
+        }
       } else {
-        setRecentFiles(data.files || []);
+        if (append) {
+          setRecentFiles(prev => [...prev, ...(data.files || [])]);
+        } else {
+          setRecentFiles(data.files || []);
+        }
         setRecentTotalFiles(data.totalFiles || 0);
+        setRecentOffset(offset);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load recent files");
-      setRecentFiles([]);
-      setRecentTotalFiles(0);
+      if (!append) {
+        setRecentFiles([]);
+        setRecentTotalFiles(0);
+      }
     } finally {
       setIsLoadingRecent(false);
+      setLoadingMoreRecent(false);
     }
   }, []);
+
+  const handleLoadMoreRecent = useCallback(() => {
+    setLoadingMoreRecent(true);
+    loadRecentFiles(recentTypeFilter, recentOffset + PAGE_SIZE, true);
+  }, [recentTypeFilter, recentOffset, loadRecentFiles]);
 
   const handleShowRecent = useCallback(() => {
     window.history.pushState({}, "", "/recent");
     setIsRecentMode(true);
     setIsSearchMode(false);
     setSearchQuery("");
-    loadRecentFiles(recentTypeFilter);
+    setRecentOffset(0);
+    loadRecentFiles(recentTypeFilter, 0);
   }, [loadRecentFiles, recentTypeFilter]);
 
   const handleRecentTypeFilterChange = useCallback((filter: FileTypeFilter) => {
     setRecentTypeFilter(filter);
-    loadRecentFiles(filter);
+    setRecentOffset(0);
+    loadRecentFiles(filter, 0);
   }, [loadRecentFiles]);
 
   const handleCloseRecent = useCallback(() => {
@@ -380,17 +487,21 @@ export function S3FileManager() {
   const handleNavigateToFolderFromRecent = useCallback((path: string) => {
     setIsRecentMode(false);
     navigateToFolder(path);
-  }, []);
+  }, [navigateToFolder]);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent
+  // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
+  // for this purpose since we pass explicit values rather than relying on closure state
   useEffect(() => {
     const initialQuery = getSearchQueryFromURL();
     if (initialQuery) {
       handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
-      loadRecentFiles(recentTypeFilter);
+      // Use "all" directly since this is the initial mount and recentTypeFilter starts as "all"
+      loadRecentFiles("all", 0);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle browser back/forward
   useEffect(() => {
@@ -407,11 +518,14 @@ export function S3FileManager() {
         setPreviewContent("");
         setIsRecentMode(true);
         setIsSearchMode(false);
-        loadRecentFiles(recentTypeFilter);
+        setRecentOffset(0);
+        loadRecentFiles(recentTypeFilter, 0);
       } else {
         setPreviewFile(null);
         setPreviewContent("");
-        setCurrentPath(getFolderPathFromURL());
+        const newPath = getFolderPathFromURL();
+        setCurrentPath(newPath);
+        setBrowseOffset(0);
         setIsRecentMode(false);
       }
 
@@ -423,13 +537,14 @@ export function S3FileManager() {
           setSearchQuery("");
           setSearchResults([]);
           setSearchTotalHits(0);
+          setSearchOffset(0);
           setIsSearchMode(false);
         }
       }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [searchQuery, handleSearch, loadRecentFiles]);
+  }, [searchQuery, handleSearch, loadRecentFiles, recentTypeFilter]);
 
   // Load content when preview file changes
   useEffect(() => {
@@ -437,9 +552,6 @@ export function S3FileManager() {
       loadPreviewContent(previewFile);
     }
   }, [previewFile, loadPreviewContent]);
-
-  // Get items at current path
-  const { folders, files } = getItemsAtPath(objects, currentPath);
 
   // Build breadcrumb segments
   const pathSegments = currentPath ? currentPath.split("/") : [];
@@ -526,7 +638,7 @@ export function S3FileManager() {
                 "Reindex"
               )}
             </Button>
-            <Button onClick={fetchObjects} disabled={loading} variant="outline" size="sm">
+            <Button onClick={handleRefresh} disabled={loading} variant="outline" size="sm">
               {loading ? "Loading..." : "Refresh"}
             </Button>
           </div>
@@ -556,6 +668,9 @@ export function S3FileManager() {
             onPreview={handlePreview}
             onDownload={handleDownload}
             onNavigateToFolder={handleNavigateToFolderFromSearch}
+            onLoadMore={handleLoadMoreSearch}
+            hasMore={searchResults.length < searchTotalHits}
+            loadingMore={loadingMoreSearch}
           />
         ) : isRecentMode ? (
           <RecentFiles
@@ -568,6 +683,9 @@ export function S3FileManager() {
             onDownload={handleDownload}
             onNavigateToFolder={handleNavigateToFolderFromRecent}
             onClose={handleCloseRecent}
+            onLoadMore={handleLoadMoreRecent}
+            hasMore={recentFiles.length < recentTotalFiles}
+            loadingMore={loadingMoreRecent}
           />
         ) : (
           <>
@@ -585,8 +703,9 @@ export function S3FileManager() {
               <span key={pathToHere} className="flex items-center gap-1">
                 <span className="text-muted-foreground">&gt;</span>
                 <button
+                  type="button"
                   onClick={() => navigateToFolder(pathToHere)}
-                  className="hover:text-primary hover:underline max-w-[200px] truncate"
+                  className="hover:text-primary hover:underline max-w-[200px] truncate sm:max-w-none"
                   title={segment}
                 >
                   {segment}
@@ -608,12 +727,9 @@ export function S3FileManager() {
             <tbody>
               {/* Parent folder navigation */}
               {currentPath && (
-                <tr 
+                <tr
                   className="border-t hover:bg-muted/30 cursor-pointer"
-                  onClick={() => {
-                    const parentPath = currentPath.split("/").slice(0, -1).join("/");
-                    navigateToFolder(parentPath);
-                  }}
+                  onClick={handleNavigateUp}
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
@@ -623,28 +739,16 @@ export function S3FileManager() {
                       <span>..</span>
                     </div>
                   </td>
-                  <td 
-                    className="p-3 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        const parentPath = currentPath.split("/").slice(0, -1).join("/");
-                        navigateToFolder(parentPath);
-                      }}
-                    >
-                      Back
-                    </Button>
+                  <td className="p-3 text-right text-muted-foreground">
+                    -
                   </td>
                 </tr>
               )}
 
               {/* Folders */}
               {folders.map((folder) => (
-                <tr 
-                  key={folder} 
+                <tr
+                  key={folder}
                   className="border-t hover:bg-muted/30 cursor-pointer"
                   onClick={() => navigateToFolder(currentPath ? `${currentPath}/${folder}` : folder)}
                 >
@@ -664,8 +768,8 @@ export function S3FileManager() {
 
               {/* Files */}
               {files.map((obj) => (
-                <tr 
-                  key={obj.key} 
+                <tr
+                  key={obj.key}
                   className={`border-t hover:bg-muted/30 ${isPreviewable(obj.key) ? 'cursor-pointer' : ''}`}
                   onClick={() => {
                     if (isPreviewable(obj.key)) {
@@ -685,7 +789,7 @@ export function S3FileManager() {
                       </span>
                     </div>
                   </td>
-                  <td 
+                  <td
                     className="p-3 text-right space-x-2"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -727,6 +831,17 @@ export function S3FileManager() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination for files */}
+        {totalFiles > 0 && (
+          <Pagination
+            current={files.length}
+            total={totalFiles}
+            loading={loadingMoreFiles}
+            hasMore={files.length < totalFiles}
+            onLoadMore={handleLoadMoreFiles}
+          />
+        )}
           </>
         )}
       </CardContent>
@@ -734,4 +849,4 @@ export function S3FileManager() {
   );
 }
 
-export default S3FileManager;
+export default DocumentViewer;

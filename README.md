@@ -87,14 +87,14 @@ docker-compose up
 
 ## API Endpoints
 
-### S3 Operations
+### Document Operations
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/s3/list` | List all objects in the bucket |
-| GET | `/api/s3/recent` | List recent `.txt` and `.md` files |
-| GET | `/api/s3/download?key=<encoded>` | Download a file |
-| GET | `/api/s3/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
+| GET | `/api/documents/list` | List all documents (from database) |
+| GET | `/api/documents/recent` | List recent `.txt` and `.md` files |
+| GET | `/api/documents/download?key=<encoded>` | Download a file |
+| GET | `/api/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
 
 ### Search Operations
 
