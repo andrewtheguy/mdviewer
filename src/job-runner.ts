@@ -23,6 +23,15 @@ const CONTENT_PREVIEW_LENGTH = 500;
 const INDEX_BATCH_SIZE = 100;
 const S3_FETCH_TIMEOUT_MS = 30000; // 30 seconds per file
 
+// Metadata interface for folder metadata.json files
+interface FolderMetadata {
+  creation_date: string;  // ISO 8601
+  version: number;
+  type: string;           // "transcribefoldermetadata"
+  collection: string;
+  title: string;
+}
+
 // In-memory status
 interface ReindexStatus {
   running: boolean;
@@ -75,6 +84,45 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
+// Fetch and parse metadata.json from a folder
+async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata | null> {
+  const metadataKey = folderPath ? `${folderPath}/metadata.json` : "metadata.json";
+  try {
+    const file = s3.file(metadataKey);
+    const exists = await withTimeout(file.exists(), S3_FETCH_TIMEOUT_MS, `check exists ${metadataKey}`);
+    if (!exists) return null;
+
+    const content = await withTimeout(file.text(), S3_FETCH_TIMEOUT_MS, `fetch ${metadataKey}`);
+    const metadata = JSON.parse(content) as Record<string, unknown>;
+
+    // Validate type
+    if (metadata.type !== "transcribefoldermetadata") {
+      console.warn(`[JobRunner] Invalid metadata type at ${metadataKey}: expected "transcribefoldermetadata", got "${metadata.type}"`);
+      return null;
+    }
+
+    // Validate required fields
+    if (typeof metadata.collection !== "string" || typeof metadata.title !== "string") {
+      console.warn(`[JobRunner] Missing collection or title in metadata at ${metadataKey}`);
+      return null;
+    }
+
+    return {
+      creation_date: typeof metadata.creation_date === "string" ? metadata.creation_date : "",
+      version: typeof metadata.version === "number" ? metadata.version : 0,
+      type: metadata.type as string,
+      collection: metadata.collection as string,
+      title: metadata.title as string,
+    };
+  } catch (error) {
+    // Only log if it's not a "not found" type error
+    if (error instanceof Error && !error.message.includes("NoSuchKey")) {
+      console.warn(`[JobRunner] Failed to fetch metadata at ${metadataKey}:`, error);
+    }
+    return null;
+  }
+}
+
 async function runReindex() {
   const result = {
     total: 0,
@@ -102,11 +150,47 @@ async function runReindex() {
       `[JobRunner] Found ${objects.length} total files, ${indexableObjects.length} indexable`
     );
 
+    // Group files by folder to fetch metadata once per folder
+    const filesByFolder = new Map<string, typeof indexableObjects>();
+    for (const obj of indexableObjects) {
+      const folderPath = getPath(obj.key!);
+      if (!filesByFolder.has(folderPath)) {
+        filesByFolder.set(folderPath, []);
+      }
+      filesByFolder.get(folderPath)!.push(obj);
+    }
+
+    console.log(`[JobRunner] Found ${filesByFolder.size} unique folders`);
+
+    // Cache for folder metadata
+    const folderMetadataCache = new Map<string, FolderMetadata | null>();
+
+    // Fetch metadata for all folders in parallel (with concurrency limit)
+    const folderPaths = Array.from(filesByFolder.keys());
+    const METADATA_FETCH_CONCURRENCY = 10;
+    for (let i = 0; i < folderPaths.length; i += METADATA_FETCH_CONCURRENCY) {
+      const batch = folderPaths.slice(i, i + METADATA_FETCH_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (folderPath) => {
+          const metadata = await fetchFolderMetadata(folderPath);
+          return { folderPath, metadata };
+        })
+      );
+      for (const { folderPath, metadata } of results) {
+        folderMetadataCache.set(folderPath, metadata);
+      }
+    }
+
+    const foldersWithMetadata = Array.from(folderMetadataCache.values()).filter(m => m !== null).length;
+    console.log(`[JobRunner] Found metadata.json in ${foldersWithMetadata}/${filesByFolder.size} folders`);
+
     let pendingDocuments: S3FileDocument[] = [];
+    let processedCount = 0;
 
     for (let i = 0; i < indexableObjects.length; i++) {
       const obj = indexableObjects[i]!;
       const key = obj.key!;
+      const folderPath = getPath(key);
 
       try {
         const content = await withTimeout(
@@ -119,17 +203,36 @@ async function runReindex() {
           ? new Date(obj.lastModified)
           : new Date();
 
+        // Get metadata for this file's folder
+        const metadata = folderMetadataCache.get(folderPath) ?? null;
+
+        // Determine creation date - use metadata if available, otherwise S3 lastModified
+        let creationDate: Date;
+        let creationDateISO: string;
+        if (metadata?.creation_date) {
+          creationDate = new Date(metadata.creation_date);
+          creationDateISO = metadata.creation_date;
+        } else {
+          creationDate = lastModified;
+          creationDateISO = lastModified.toISOString();
+        }
+
         pendingDocuments.push({
           id: keyToId(key),
           key,
           name: getBasename(key),
           extension: getExtension(key),
-          path: getPath(key),
+          path: folderPath,
           size: obj.size ?? 0,
           lastModified: lastModified.getTime(),
           lastModifiedISO: lastModified.toISOString(),
           content,
           contentPreview,
+          collection: metadata?.collection ?? null,
+          title: metadata?.title ?? null,
+          creationDate: creationDate.getTime(),
+          creationDateISO,
+          hasMetadata: metadata !== null,
         });
       } catch (err) {
         console.error(`[JobRunner] Failed to fetch "${key}":`, err);
@@ -147,10 +250,11 @@ async function runReindex() {
         pendingDocuments = [];
       }
 
-      status.progress.current = i + 1;
-      if ((i + 1) % 100 === 0 || i === indexableObjects.length - 1) {
+      processedCount++;
+      status.progress.current = processedCount;
+      if (processedCount % 100 === 0 || processedCount === indexableObjects.length) {
         console.log(
-          `[JobRunner] Processed ${i + 1}/${indexableObjects.length} files (indexed: ${result.indexed})...`
+          `[JobRunner] Processed ${processedCount}/${indexableObjects.length} files (indexed: ${result.indexed})...`
         );
       }
     }

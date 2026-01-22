@@ -14,6 +14,11 @@ export interface S3FileDocument {
   lastModifiedISO: string;
   content: string;
   contentPreview: string;
+  collection: string | null;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
+  hasMetadata: boolean;
 }
 
 // Encode S3 key to safe ID (base64url)
@@ -41,14 +46,19 @@ const DOCUMENTS_TABLE_DEFINITION = `
     last_modified INTEGER NOT NULL,
     last_modified_iso TEXT NOT NULL,
     content TEXT NOT NULL,
-    content_preview TEXT NOT NULL
+    content_preview TEXT NOT NULL,
+    collection TEXT,
+    title TEXT,
+    creation_date INTEGER,
+    creation_date_iso TEXT,
+    has_metadata INTEGER DEFAULT 0
   );
 `;
 
 // Shared FTS5 table definition
 const FTS_TABLE_DEFINITION = `
   CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-    name, content, path, key,
+    name, content, path, key, collection, title,
     content='documents',
     content_rowid='rowid',
     tokenize='porter unicode61'
@@ -58,20 +68,20 @@ const FTS_TABLE_DEFINITION = `
 // Shared trigger definitions to keep FTS in sync with main table
 const TRIGGER_DEFINITIONS = `
   CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-    INSERT INTO documents_fts(rowid, name, content, path, key)
-    VALUES (new.rowid, new.name, new.content, new.path, new.key);
+    INSERT INTO documents_fts(rowid, name, content, path, key, collection, title)
+    VALUES (new.rowid, new.name, new.content, new.path, new.key, new.collection, new.title);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key, collection, title)
+    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key, old.collection, old.title);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-    INSERT INTO documents_fts(rowid, name, content, path, key)
-    VALUES (new.rowid, new.name, new.content, new.path, new.key);
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key, collection, title)
+    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key, old.collection, old.title);
+    INSERT INTO documents_fts(rowid, name, content, path, key, collection, title)
+    VALUES (new.rowid, new.name, new.content, new.path, new.key, new.collection, new.title);
   END;
 `;
 
@@ -158,6 +168,10 @@ function initializeSchema(database: Database.Database): void {
 
     -- Index for faster lookups by key
     CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
+    -- Index for collection queries
+    CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
+    -- Index for sorting by creation date
+    CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
   `);
 }
 
@@ -246,6 +260,11 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
       d.last_modified_iso as lastModifiedISO,
       d.content,
       d.content_preview as contentPreview,
+      d.collection,
+      d.title,
+      d.creation_date as creationDate,
+      d.creation_date_iso as creationDateISO,
+      d.has_metadata as hasMetadata,
       highlight(documents_fts, 0, '<mark>', '</mark>') as highlighted_name,
       snippet(documents_fts, 1, '<mark>', '</mark>', '...', 32) as highlighted_content,
       bm25(documents_fts) as rank
@@ -267,6 +286,11 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     lastModifiedISO: string;
     content: string;
     contentPreview: string;
+    collection: string | null;
+    title: string | null;
+    creationDate: number | null;
+    creationDateISO: string | null;
+    hasMetadata: number;
     highlighted_name: string;
     highlighted_content: string;
     rank: number;
@@ -283,6 +307,11 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     lastModifiedISO: row.lastModifiedISO,
     content: row.content,
     contentPreview: row.contentPreview,
+    collection: row.collection,
+    title: row.title,
+    creationDate: row.creationDate,
+    creationDateISO: row.creationDateISO,
+    hasMetadata: row.hasMetadata === 1,
     _formatted: {
       name: row.highlighted_name,
       content: row.highlighted_content,
@@ -302,9 +331,10 @@ export function addDocument(doc: S3FileDocument): void {
 
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO documents
-      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview)
+      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview,
+       collection, title, creation_date, creation_date_iso, has_metadata)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -317,7 +347,12 @@ export function addDocument(doc: S3FileDocument): void {
     doc.lastModified,
     doc.lastModifiedISO,
     doc.content,
-    doc.contentPreview
+    doc.contentPreview,
+    doc.collection,
+    doc.title,
+    doc.creationDate,
+    doc.creationDateISO,
+    doc.hasMetadata ? 1 : 0
   );
 }
 
@@ -326,9 +361,10 @@ export function addDocuments(docs: S3FileDocument[]): void {
 
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO documents
-      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview)
+      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview,
+       collection, title, creation_date, creation_date_iso, has_metadata)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = database.transaction((documents: S3FileDocument[]) => {
@@ -343,7 +379,12 @@ export function addDocuments(docs: S3FileDocument[]): void {
         doc.lastModified,
         doc.lastModifiedISO,
         doc.content,
-        doc.contentPreview
+        doc.contentPreview,
+        doc.collection,
+        doc.title,
+        doc.creationDate,
+        doc.creationDateISO,
+        doc.hasMetadata ? 1 : 0
       );
     }
   });
@@ -378,6 +419,8 @@ export function deleteAllDocuments(): void {
       ${TRIGGER_DEFINITIONS}
 
       CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
+      CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
+      CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
     `);
   });
 
@@ -446,6 +489,10 @@ export interface RecentDocument {
   size: number;
   lastModified: number | null;
   lastModifiedISO: string | null;
+  collection: string | null;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
 }
 
 // Get recent documents with pagination/filtering (for /api/documents/recent)
@@ -471,12 +518,14 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   const countResult = countStmt.get(...filterParams) as { count: number };
   const totalFiles = countResult.count;
 
-  // Get paginated results sorted by most recent first
+  // Get paginated results sorted by creation date (most recent first)
   const stmt = database.prepare(`
-    SELECT key, name, path, size, last_modified as lastModified, last_modified_iso as lastModifiedISO
+    SELECT key, name, path, size,
+           last_modified as lastModified, last_modified_iso as lastModifiedISO,
+           collection, title, creation_date as creationDate, creation_date_iso as creationDateISO
     FROM documents
     ${whereClause}
-    ORDER BY last_modified DESC
+    ORDER BY creation_date DESC
     LIMIT ? OFFSET ?
   `);
 
@@ -487,6 +536,10 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
     size: number;
     lastModified: number | null;
     lastModifiedISO: string | null;
+    collection: string | null;
+    title: string | null;
+    creationDate: number | null;
+    creationDateISO: string | null;
   }>;
 
   return {
@@ -601,5 +654,87 @@ export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
     files,
     totalFolders,
     totalFiles,
+  };
+}
+
+// Collection interfaces
+export interface CollectionSummary {
+  name: string;
+  count: number;
+  latestCreationDate: string | null;
+}
+
+export interface CollectionTranscript {
+  key: string;
+  name: string;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
+  size: number;
+}
+
+export interface CollectionTranscriptsResult {
+  transcripts: CollectionTranscript[];
+  collection: string;
+  total: number;
+}
+
+// Get all collections with counts
+export function getCollections(): CollectionSummary[] {
+  const database = getDatabase();
+
+  const stmt = database.prepare(`
+    SELECT
+      collection as name,
+      COUNT(*) as count,
+      MAX(creation_date_iso) as latestCreationDate
+    FROM documents
+    WHERE collection IS NOT NULL
+    GROUP BY collection
+    ORDER BY MAX(creation_date) DESC
+  `);
+
+  const rows = stmt.all() as Array<{
+    name: string;
+    count: number;
+    latestCreationDate: string | null;
+  }>;
+
+  return rows;
+}
+
+// Get transcripts in a collection
+export function getCollectionTranscripts(
+  collection: string,
+  options: { limit?: number; offset?: number } = {}
+): CollectionTranscriptsResult {
+  const database = getDatabase();
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
+  // Get total count for this collection
+  const countStmt = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM documents
+    WHERE collection = ?
+  `);
+  const countResult = countStmt.get(collection) as { count: number };
+  const total = countResult.count;
+
+  // Get paginated transcripts sorted by creation date DESC
+  const stmt = database.prepare(`
+    SELECT key, name, title, creation_date as creationDate, creation_date_iso as creationDateISO, size
+    FROM documents
+    WHERE collection = ?
+    ORDER BY creation_date DESC
+    LIMIT ? OFFSET ?
+  `);
+
+  const transcripts = stmt.all(collection, limit, offset) as CollectionTranscript[];
+
+  return {
+    transcripts,
+    collection,
+    total,
   };
 }

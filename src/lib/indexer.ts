@@ -61,6 +61,12 @@ export async function indexFile(
       lastModifiedISO: lastModified.toISOString(),
       content,
       contentPreview,
+      // Metadata fields - not populated for ad-hoc indexing
+      collection: null,
+      title: null,
+      creationDate: lastModified.getTime(),
+      creationDateISO: lastModified.toISOString(),
+      hasMetadata: false,
     };
 
     await addDocument(document);
@@ -143,6 +149,12 @@ export async function fullReindex(): Promise<ReindexResult> {
             lastModifiedISO: lastModified.toISOString(),
             content,
             contentPreview,
+            // Metadata fields - not populated for full reindex via indexer (use job-runner instead)
+            collection: null,
+            title: null,
+            creationDate: lastModified.getTime(),
+            creationDateISO: lastModified.toISOString(),
+            hasMetadata: false,
           } as S3FileDocument;
         })
       );

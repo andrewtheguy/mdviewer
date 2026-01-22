@@ -9,6 +9,10 @@ export interface RecentFile {
   size: number;
   lastModified: number;
   lastModifiedISO: string;
+  collection: string | null;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
 }
 
 export type FileTypeFilter = "all" | "txt" | "md";
@@ -125,7 +129,7 @@ export function RecentFiles({
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left p-3 font-medium">File</th>
-              <th className="text-left p-3 font-medium hidden sm:table-cell">Last Updated</th>
+              <th className="text-left p-3 font-medium hidden sm:table-cell">Created</th>
               <th className="text-right p-3 font-medium">Actions</th>
             </tr>
           </thead>
@@ -137,6 +141,7 @@ export function RecentFiles({
                 </td>
               </tr>
             ) : files.map((file) => {
+              const displayDate = file.creationDate ?? file.lastModified;
               return (
                 <tr
                   key={file.key}
@@ -147,11 +152,18 @@ export function RecentFiles({
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 shrink-0" />
-                        <span className="break-all">{file.name}</span>
+                        <span className="break-all font-medium">
+                          {file.title || file.name}
+                        </span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap">
                           ({formatBytes(file.size)})
                         </span>
                       </div>
+                      {file.collection && (
+                        <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+                          {file.collection}
+                        </span>
+                      )}
                       {file.path && (
                         <button
                           onClick={(e) => {
@@ -165,16 +177,16 @@ export function RecentFiles({
                       )}
                       <div className="sm:hidden flex flex-col gap-0.5 mt-1 text-muted-foreground">
                         <span className="text-xs font-medium text-foreground">
-                          Updated {getRelativeTime(file.lastModified)}
+                          {getRelativeTime(displayDate)}
                         </span>
                       </div>
                     </div>
                   </td>
                   <td className="p-3 hidden sm:table-cell">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-sm">{getRelativeTime(file.lastModified)}</span>
+                      <span className="text-sm">{getRelativeTime(displayDate)}</span>
                       <span className="text-xs text-muted-foreground">
-                        {formatDate(file.lastModified)}
+                        {formatDate(displayDate)}
                       </span>
                     </div>
                   </td>

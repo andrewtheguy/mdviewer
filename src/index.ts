@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, browseFolder } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, browseFolder, getCollections, getCollectionTranscripts } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
 // Validate and decode base64 URL-safe encoded key
@@ -305,6 +305,45 @@ app.get("/api/search/stats", async (_req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to get stats",
+    });
+  }
+});
+
+// Collections API Routes
+app.get("/api/collections", (_req, res) => {
+  try {
+    const collections = getCollections();
+    res.json({ collections });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get collections",
+    });
+  }
+});
+
+app.get("/api/collections/:collection", (req, res) => {
+  try {
+    const { collection } = req.params;
+
+    // Parse and validate limit
+    let limit = parseInt((req.query.limit as string) || "50", 10);
+    if (isNaN(limit) || limit < 0) {
+      limit = 50;
+    } else if (limit > 100) {
+      limit = 100;
+    }
+
+    // Parse and validate offset
+    let offset = parseInt((req.query.offset as string) || "0", 10);
+    if (isNaN(offset) || offset < 0) {
+      offset = 0;
+    }
+
+    const result = getCollectionTranscripts(collection, { limit, offset });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get collection transcripts",
     });
   }
 });

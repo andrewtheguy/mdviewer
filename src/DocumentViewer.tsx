@@ -5,8 +5,9 @@ import Markdown from "react-markdown";
 import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
+import { CollectionsView, type CollectionSummary, type CollectionTranscript } from "@/components/CollectionsView";
 import { Pagination } from "@/components/Pagination";
-import { Eye, Download, FileText, Folder, ChevronLeft, Loader2, House, Clock, RotateCw, RefreshCw, FolderOpen } from "lucide-react";
+import { Eye, Download, FileText, Folder, ChevronLeft, Loader2, House, Clock, RotateCw, RefreshCw, FolderOpen, Library } from "lucide-react";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -83,6 +84,24 @@ function isRecentViewFromURL(): boolean {
   return window.location.pathname === "/recent";
 }
 
+// Check if URL is /collections
+function isCollectionsViewFromURL(): boolean {
+  return window.location.pathname === "/collections" || window.location.pathname.startsWith("/collections/");
+}
+
+// Get selected collection from URL
+function getCollectionFromURL(): string | null {
+  const match = window.location.pathname.match(/^\/collections\/(.+)$/);
+  if (match && match[1]) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 // Get page number from URL query params
 function getPageFromURL(): number {
   const params = new URLSearchParams(window.location.search);
@@ -142,6 +161,15 @@ export function DocumentViewer() {
   const [isLoadingRecent, setIsLoadingRecent] = useState(false);
   const [recentTypeFilter, setRecentTypeFilter] = useState<FileTypeFilter>("all");
   const [recentCurrentPage, setRecentCurrentPage] = useState(1);
+
+  // Collections state
+  const [isCollectionsMode, setIsCollectionsMode] = useState(isCollectionsViewFromURL);
+  const [collections, setCollections] = useState<CollectionSummary[]>([]);
+  const [selectedCollection, setSelectedCollection] = useState<string | null>(getCollectionFromURL);
+  const [collectionTranscripts, setCollectionTranscripts] = useState<CollectionTranscript[]>([]);
+  const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
+  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+  const [collectionCurrentPage, setCollectionCurrentPage] = useState(1);
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -506,7 +534,95 @@ export function DocumentViewer() {
     navigateToFolder(path);
   }, [navigateToFolder]);
 
-  // Trigger search on initial load if query in URL, or load recent files if on /recent
+  // Collections handlers
+  const loadCollections = useCallback(async () => {
+    setIsLoadingCollections(true);
+    try {
+      const response = await fetch("/api/collections");
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        setCollections([]);
+      } else {
+        setCollections(data.collections || []);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load collections");
+      setCollections([]);
+    } finally {
+      setIsLoadingCollections(false);
+    }
+  }, []);
+
+  const loadCollectionTranscripts = useCallback(async (collection: string, page = 1) => {
+    setIsLoadingCollections(true);
+    try {
+      const offset = (page - 1) * PAGE_SIZE;
+      const response = await fetch(
+        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}`
+      );
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        setCollectionTranscripts([]);
+        setCollectionTotalTranscripts(0);
+      } else {
+        setCollectionTranscripts(data.transcripts || []);
+        setCollectionTotalTranscripts(data.total || 0);
+        setCollectionCurrentPage(page);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load collection transcripts");
+      setCollectionTranscripts([]);
+      setCollectionTotalTranscripts(0);
+    } finally {
+      setIsLoadingCollections(false);
+    }
+  }, []);
+
+  const handleShowCollections = useCallback(() => {
+    window.history.pushState({}, "", "/collections");
+    setIsCollectionsMode(true);
+    setIsRecentMode(false);
+    setIsSearchMode(false);
+    setSearchQuery("");
+    setSelectedCollection(null);
+    setCollectionCurrentPage(1);
+    loadCollections();
+  }, [loadCollections]);
+
+  const handleSelectCollection = useCallback((collection: string) => {
+    window.history.pushState({}, "", `/collections/${encodeURIComponent(collection)}`);
+    setSelectedCollection(collection);
+    setCollectionCurrentPage(1);
+    loadCollectionTranscripts(collection, 1);
+  }, [loadCollectionTranscripts]);
+
+  const handleCollectionBack = useCallback(() => {
+    window.history.pushState({}, "", "/collections");
+    setSelectedCollection(null);
+    setCollectionTranscripts([]);
+    setCollectionTotalTranscripts(0);
+    setCollectionCurrentPage(1);
+  }, []);
+
+  const handleCloseCollections = useCallback(() => {
+    setIsCollectionsMode(false);
+    setSelectedCollection(null);
+    if (currentPath) {
+      window.history.pushState({}, "", `/folder/${encodeKey(currentPath)}`);
+    } else {
+      window.history.pushState({}, "", "/");
+    }
+  }, [currentPath]);
+
+  const handleCollectionPageChange = useCallback((page: number) => {
+    if (selectedCollection) {
+      loadCollectionTranscripts(selectedCollection, page);
+    }
+  }, [selectedCollection, loadCollectionTranscripts]);
+
+  // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
   // for this purpose since we pass explicit values rather than relying on closure state
   useEffect(() => {
@@ -519,6 +635,14 @@ export function DocumentViewer() {
       const pageFromUrl = getPageFromURL();
       setRecentCurrentPage(pageFromUrl);
       loadRecentFiles("all", pageFromUrl);
+    } else if (isCollectionsViewFromURL()) {
+      const collectionFromUrl = getCollectionFromURL();
+      if (collectionFromUrl) {
+        setSelectedCollection(collectionFromUrl);
+        loadCollectionTranscripts(collectionFromUrl, 1);
+      } else {
+        loadCollections();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -529,14 +653,31 @@ export function DocumentViewer() {
       const previewKey = getPreviewKeyFromURL();
       const urlQuery = getSearchQueryFromURL();
       const isRecent = isRecentViewFromURL();
+      const isCollections = isCollectionsViewFromURL();
 
       if (previewKey) {
         setPreviewFile(previewKey);
         setIsRecentMode(false);
+        setIsCollectionsMode(false);
+      } else if (isCollections) {
+        setPreviewFile(null);
+        setPreviewContent("");
+        setIsCollectionsMode(true);
+        setIsRecentMode(false);
+        setIsSearchMode(false);
+        const collectionFromUrl = getCollectionFromURL();
+        if (collectionFromUrl) {
+          setSelectedCollection(collectionFromUrl);
+          loadCollectionTranscripts(collectionFromUrl, 1);
+        } else {
+          setSelectedCollection(null);
+          loadCollections();
+        }
       } else if (isRecent) {
         setPreviewFile(null);
         setPreviewContent("");
         setIsRecentMode(true);
+        setIsCollectionsMode(false);
         setIsSearchMode(false);
         const pageFromUrl = getPageFromURL();
         setRecentCurrentPage(pageFromUrl);
@@ -548,13 +689,14 @@ export function DocumentViewer() {
         setCurrentPath(newPath);
         setBrowseCurrentPage(1);
         setIsRecentMode(false);
+        setIsCollectionsMode(false);
       }
 
       // Handle search query changes from back/forward
       if (urlQuery !== searchQuery) {
         if (urlQuery) {
           handleSearch(urlQuery, false);
-        } else if (!isRecent) {
+        } else if (!isRecent && !isCollections) {
           setSearchQuery("");
           setSearchResults([]);
           setSearchTotalHits(0);
@@ -565,7 +707,7 @@ export function DocumentViewer() {
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [searchQuery, handleSearch, loadRecentFiles, recentTypeFilter]);
+  }, [searchQuery, handleSearch, loadRecentFiles, recentTypeFilter, loadCollections, loadCollectionTranscripts]);
 
   // Load content when preview file changes
   useEffect(() => {
@@ -660,12 +802,14 @@ export function DocumentViewer() {
            {/* Actions Toolbar */}
           <div className="flex flex-wrap items-center gap-2 border-b pb-3">
              <Button
-              variant={!isRecentMode && !isSearchMode ? "secondary" : "ghost"}
+              variant={!isRecentMode && !isSearchMode && !isCollectionsMode ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
-                if (isRecentMode || isSearchMode) {
+                if (isRecentMode || isSearchMode || isCollectionsMode) {
                   setIsRecentMode(false);
                   setIsSearchMode(false);
+                  setIsCollectionsMode(false);
+                  setSelectedCollection(null);
                   // Switch mode: restore URL to currentPath
                   if (currentPath) {
                      window.history.pushState({}, "", `/folder/${encodeKey(currentPath)}`);
@@ -688,6 +832,16 @@ export function DocumentViewer() {
             >
               <Clock className="size-4" />
               <span>Recent</span>
+            </Button>
+
+            <Button
+              variant={isCollectionsMode ? "secondary" : "ghost"}
+              size="sm"
+              onClick={handleShowCollections}
+              className="gap-2 h-8"
+            >
+              <Library className="size-4" />
+              <span>Collections</span>
             </Button>
           </div>
 
@@ -729,6 +883,22 @@ export function DocumentViewer() {
             currentPage={recentCurrentPage}
             pageSize={PAGE_SIZE}
             onPageChange={handleRecentPageChange}
+          />
+        ) : isCollectionsMode ? (
+          <CollectionsView
+            collections={collections}
+            selectedCollection={selectedCollection}
+            transcripts={collectionTranscripts}
+            loading={isLoadingCollections}
+            onSelectCollection={handleSelectCollection}
+            onBack={handleCollectionBack}
+            onPreview={handlePreview}
+            onDownload={handleDownload}
+            onClose={handleCloseCollections}
+            currentPage={collectionCurrentPage}
+            pageSize={PAGE_SIZE}
+            totalTranscripts={collectionTotalTranscripts}
+            onPageChange={handleCollectionPageChange}
           />
         ) : (
           <>
