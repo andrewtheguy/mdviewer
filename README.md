@@ -1,6 +1,6 @@
 # Markdown Viewer
 
-A web-based markdown viewer with S3 storage and full-text search powered by Meilisearch. Built with Bun, React, and Tailwind CSS.
+A web-based markdown viewer with S3 storage and full-text search powered by SQLite FTS5. Built with Node.js, React, and Tailwind CSS.
 
 > [!IMPORTANT]
 > This application is designed for self-hosted S3-compatible storage like [Garage](https://garagehq.deuxfleurs.fr/) or [Ceph](https://ceph.io/). It makes frequent API calls to list and fetch files, which may incur significant costs on commercial cloud providers like AWS S3.
@@ -9,20 +9,19 @@ A web-based markdown viewer with S3 storage and full-text search powered by Meil
 
 - Browse and view markdown or text files stored in S3
 - Rendered markdown preview with styling
-- Full-text search across `.txt` and `.md` files using Meilisearch
+- Full-text search across `.txt` and `.md` files using SQLite FTS5
 - Highlighted search results with content preview
 - Folder navigation and file management
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) v1.3+
-- [Meilisearch](https://www.meilisearch.com/) v1.0+
+- [Node.js](https://nodejs.org) v24+
 - S3-compatible storage (Garage, Ceph, etc.)
 
 ## Installation
 
 ```bash
-bun install
+npm install
 ```
 
 ## Configuration
@@ -37,40 +36,61 @@ S3_SECRET_ACCESS_KEY=your-secret-key
 S3_BUCKET=your-bucket-name
 S3_REGION=us-east-1
 
-# Meilisearch Configuration
-MEILISEARCH_HOST=http://localhost:7700
-MEILISEARCH_API_KEY=your-master-key
-MEILISEARCH_INDEX=s3_files
+# SQLite Database Path (optional, defaults to ./data/search.sqlite)
+SQLITE_DB_PATH=./data/search.sqlite
+
+# Job Runner URL (optional, defaults to http://localhost:3001)
+JOB_RUNNER_URL=http://localhost:3001
 ```
 
 ## Running
 
-### 1. Start Meilisearch
+### Development
 
 ```bash
-meilisearch --master-key="your-master-key"
+npm run dev
 ```
 
-### 2. Start the development server
+This starts both the backend server and Vite dev server concurrently.
+
+### Production
 
 ```bash
-bun dev
-```
-
-Or for production:
-
-```bash
-bun start
+npm run build
+npm run start
 ```
 
 The app will be available at http://localhost:3000
 
-### 3. Index your files
+### Job Runner
+
+The job runner handles background tasks like reindexing:
+
+```bash
+npm run job-runner
+```
+
+### Index your files
 
 Trigger a full reindex to populate the search index:
 
 ```bash
 curl -X POST http://localhost:3000/api/search/reindex
+```
+
+## Docker
+
+Build and run with Docker:
+
+```bash
+docker build -t mdviewer .
+docker run -p 3000:3000 --env-file .env mdviewer
+```
+
+Or use Docker Compose:
+
+```bash
+docker-compose up
 ```
 
 ## API Endpoints
@@ -80,7 +100,7 @@ curl -X POST http://localhost:3000/api/search/reindex
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/s3/list` | List all objects in the bucket |
-| POST | `/api/s3/upload` | Upload a file (multipart form data) |
+| GET | `/api/s3/recent` | List recent `.txt` and `.md` files |
 | GET | `/api/s3/download?key=<encoded>` | Download a file |
 | DELETE | `/api/s3/delete?key=<encoded>` | Delete a file |
 | GET | `/api/s3/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
@@ -91,6 +111,7 @@ curl -X POST http://localhost:3000/api/search/reindex
 |--------|----------|-------------|
 | GET | `/api/search?q=<query>` | Search indexed files |
 | POST | `/api/search/reindex` | Trigger full reindex |
+| GET | `/api/search/reindex/status` | Check reindex status |
 | GET | `/api/search/stats` | Get index statistics |
 
 Note: File keys are base64url encoded in API requests.
@@ -113,23 +134,22 @@ Search results display highlighted matches and allow you to:
 ```
 src/
 ├── index.ts              # Server entry point with API routes
-├── index.html            # HTML entry point
-├── S3FileManager.tsx     # Main markdown viewer component
+├── job-runner.ts         # Background job runner
 ├── components/
 │   ├── SearchBar.tsx     # Debounced search input
 │   ├── SearchResults.tsx # Search results display
 │   └── ui/               # shadcn/ui components
 └── lib/
     ├── s3.ts             # S3 client wrapper
-    ├── meilisearch.ts    # Meilisearch client
+    ├── search-db.ts      # SQLite FTS5 search
     ├── indexer.ts        # File indexing pipeline
     └── utils.ts          # Utility functions
 ```
 
 ## Tech Stack
 
-- **Runtime**: [Bun](https://bun.sh)
+- **Runtime**: [Node.js](https://nodejs.org) 24
 - **Frontend**: React 19, Tailwind CSS, shadcn/ui
-- **Search**: Meilisearch
+- **Search**: SQLite FTS5 (via better-sqlite3)
 - **Storage**: AWS SDK for S3-compatible storage
 - **Markdown**: react-markdown with @tailwindcss/typography
