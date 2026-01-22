@@ -114,17 +114,80 @@ export function DocumentViewer() {
     }
   };
 
-  // Coordinated handlers that manage multiple hooks
+  // Coordinated handlers that manage multiple hooks and close preview
   const handleShowCollections = useCallback(() => {
+    preview.closePreview();
     recent.setIsRecentMode(false);
     search.clearSearchState();
     collections.handleShowCollections();
-  }, [recent, search, collections]);
+  }, [preview, recent, search, collections]);
 
   const handleShowRecent = useCallback(() => {
+    preview.closePreview();
     search.clearSearchState();
     recent.handleShowRecent();
-  }, [search, recent]);
+  }, [preview, search, recent]);
+
+  // Wrapped handlers that close preview when list view changes
+  const handleSearch = useCallback((query: string, updateUrl?: boolean) => {
+    preview.closePreview();
+    search.handleSearch(query, updateUrl);
+  }, [preview, search]);
+
+  const handleClearSearch = useCallback(() => {
+    preview.closePreview();
+    search.handleClearSearch();
+  }, [preview, search]);
+
+  const handleSearchPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    search.handleSearchPageChange(page);
+  }, [preview, search]);
+
+  const handleRecentPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    recent.handleRecentPageChange(page);
+  }, [preview, recent]);
+
+  const handleRecentTypeFilterChange = useCallback((filter: "all" | "txt" | "md") => {
+    preview.closePreview();
+    recent.handleRecentTypeFilterChange(filter);
+  }, [preview, recent]);
+
+  const handleSelectCollection = useCallback((collection: string) => {
+    preview.closePreview();
+    collections.handleSelectCollection(collection);
+  }, [preview, collections]);
+
+  const handleCollectionBack = useCallback(() => {
+    preview.closePreview();
+    collections.handleCollectionBack();
+  }, [preview, collections]);
+
+  const handleSelectTitle = useCallback((title: string) => {
+    preview.closePreview();
+    collections.handleSelectTitle(title);
+  }, [preview, collections]);
+
+  const handleTitleBack = useCallback(() => {
+    preview.closePreview();
+    collections.handleTitleBack();
+  }, [preview, collections]);
+
+  const handleTitlesPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    collections.handleTitlesPageChange(page);
+  }, [preview, collections]);
+
+  const handleCollectionPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    collections.handleCollectionPageChange(page);
+  }, [preview, collections]);
+
+  const handleCollectionsListPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    collections.handleCollectionsListPageChange(page);
+  }, [preview, collections]);
 
   // Shared function to restore state from current URL
   // Used by popstate handler to sync state with browser navigation
@@ -280,8 +343,8 @@ export function DocumentViewer() {
 
           {/* Search Bar */}
           <SearchBar
-            onSearch={search.handleSearch}
-            onClear={search.handleClearSearch}
+            onSearch={handleSearch}
+            onClear={handleClearSearch}
             isSearching={search.isSearching}
             initialQuery={search.searchQuery}
           />
@@ -338,7 +401,7 @@ export function DocumentViewer() {
               currentPage={search.searchCurrentPage}
               pageSize={PAGE_SIZE}
               loading={search.isSearching}
-              onPageChange={search.handleSearchPageChange}
+              onPageChange={handleSearchPageChange}
             />
           ) : recent.isRecentMode ? (
             <RecentFiles
@@ -346,37 +409,37 @@ export function DocumentViewer() {
               totalFiles={recent.recentTotalFiles}
               loading={recent.isLoadingRecent}
               typeFilter={recent.recentTypeFilter}
-              onTypeFilterChange={recent.handleRecentTypeFilterChange}
+              onTypeFilterChange={handleRecentTypeFilterChange}
               onPreview={preview.handlePreview}
               onDownload={handleDownload}
               currentPage={recent.recentCurrentPage}
               pageSize={PAGE_SIZE}
-              onPageChange={recent.handleRecentPageChange}
+              onPageChange={handleRecentPageChange}
             />
           ) : (
             <CollectionsView
               collections={collections.collections}
               totalCollections={collections.totalCollections}
               collectionsCurrentPage={collections.collectionsListCurrentPage}
-              onCollectionsPageChange={collections.handleCollectionsListPageChange}
+              onCollectionsPageChange={handleCollectionsListPageChange}
               selectedCollection={collections.selectedCollection}
               titles={collections.collectionTitles}
               totalTitles={collections.totalCollectionTitles}
               titlesCurrentPage={collections.titlesCurrentPage}
-              onTitlesPageChange={collections.handleTitlesPageChange}
+              onTitlesPageChange={handleTitlesPageChange}
               selectedTitle={collections.selectedTitle}
-              onSelectTitle={collections.handleSelectTitle}
-              onTitleBack={collections.handleTitleBack}
+              onSelectTitle={handleSelectTitle}
+              onTitleBack={handleTitleBack}
               transcripts={collections.collectionTranscripts}
               loading={collections.isLoadingCollections}
-              onSelectCollection={collections.handleSelectCollection}
-              onBack={collections.handleCollectionBack}
+              onSelectCollection={handleSelectCollection}
+              onBack={handleCollectionBack}
               onPreview={preview.handlePreview}
               onDownload={handleDownload}
               currentPage={collections.collectionCurrentPage}
               pageSize={PAGE_SIZE}
               totalTranscripts={collections.collectionTotalTranscripts}
-              onPageChange={collections.handleCollectionPageChange}
+              onPageChange={handleCollectionPageChange}
             />
           )}
         </div>
