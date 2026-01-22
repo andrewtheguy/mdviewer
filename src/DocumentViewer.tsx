@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
@@ -83,6 +83,15 @@ function isRecentViewFromURL(): boolean {
   return window.location.pathname === "/recent";
 }
 
+// Get page number from URL query params
+function getPageFromURL(): number {
+  const params = new URLSearchParams(window.location.search);
+  const pageStr = params.get("page");
+  if (!pageStr) return 1;
+  const page = parseInt(pageStr, 10);
+  return Number.isNaN(page) || page < 1 ? 1 : page;
+}
+
 // Get preview key from URL
 function getPreviewKeyFromURL(): string | null {
   const match = window.location.pathname.match(/^\/preview\/(.+)$/);
@@ -109,8 +118,8 @@ export function DocumentViewer() {
   const [folders, setFolders] = useState<string[]>([]);
   const [files, setFiles] = useState<DocumentItem[]>([]);
   const [totalFiles, setTotalFiles] = useState(0);
-  const [browseOffset, setBrowseOffset] = useState(0);
-  const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
+  const [browseCurrentPage, setBrowseCurrentPage] = useState(1);
+  const browseAbortControllerRef = useRef<AbortController | null>(null);
 
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
 
@@ -121,8 +130,7 @@ export function DocumentViewer() {
   const [searchTotalHits, setSearchTotalHits] = useState(0);
   const [isSearching, setIsSearching] = useState(false);
   const [isSearchMode, setIsSearchMode] = useState(!!initialSearchQuery);
-  const [searchOffset, setSearchOffset] = useState(0);
-  const [loadingMoreSearch, setLoadingMoreSearch] = useState(false);
+  const [searchCurrentPage, setSearchCurrentPage] = useState(1);
 
   // Reindex state
   const [isReindexing, setIsReindexing] = useState(false);
@@ -133,8 +141,7 @@ export function DocumentViewer() {
   const [recentTotalFiles, setRecentTotalFiles] = useState(0);
   const [isLoadingRecent, setIsLoadingRecent] = useState(false);
   const [recentTypeFilter, setRecentTypeFilter] = useState<FileTypeFilter>("all");
-  const [recentOffset, setRecentOffset] = useState(0);
-  const [loadingMoreRecent, setLoadingMoreRecent] = useState(false);
+  const [recentCurrentPage, setRecentCurrentPage] = useState(1);
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -167,47 +174,64 @@ export function DocumentViewer() {
   };
 
   // Fetch folder contents from API
-  const fetchFolder = useCallback(async (path: string, offset = 0, append = false) => {
-    if (!append) {
-      setLoading(true);
+  const fetchFolder = useCallback(async (path: string, page = 1) => {
+    // Abort any previous request
+    if (browseAbortControllerRef.current) {
+      browseAbortControllerRef.current.abort();
     }
+    const controller = new AbortController();
+    browseAbortControllerRef.current = controller;
+
+    setLoading(true);
     setError(null);
     try {
+      const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/documents/browse?path=${encodeURIComponent(path)}&limit=${PAGE_SIZE}&offset=${offset}`
+        `/api/documents/browse?path=${encodeURIComponent(path)}&limit=${PAGE_SIZE}&offset=${offset}`,
+        { signal: controller.signal }
       );
       const data = await response.json();
       if (data.error) {
         setError(data.error);
+        setFolders([]);
+        setFiles([]);
+        setTotalFiles(0);
+        setBrowseCurrentPage(1);
       } else {
         setFolders(data.folders || []);
-        if (append) {
-          setFiles(prev => [...prev, ...(data.files || [])]);
-        } else {
-          setFiles(data.files || []);
-        }
+        setFiles(data.files || []);
         setTotalFiles(data.totalFiles || 0);
-        setBrowseOffset(offset);
+        setBrowseCurrentPage(page);
       }
     } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to fetch folder");
+      setFolders([]);
+      setFiles([]);
+      setTotalFiles(0);
+      setBrowseCurrentPage(1);
     } finally {
-      setLoading(false);
-      setLoadingMoreFiles(false);
+      // Only update state if this controller is still the current one
+      if (browseAbortControllerRef.current === controller) {
+        browseAbortControllerRef.current = null;
+        setLoading(false);
+      }
     }
   }, []);
 
   // Initial load and when path changes
   useEffect(() => {
     if (!isSearchMode && !isRecentMode) {
-      fetchFolder(currentPath, 0);
+      fetchFolder(currentPath, 1);
     }
   }, [currentPath, isSearchMode, isRecentMode, fetchFolder]);
 
-  const handleLoadMoreFiles = useCallback(() => {
-    setLoadingMoreFiles(true);
-    fetchFolder(currentPath, browseOffset + PAGE_SIZE, true);
-  }, [currentPath, browseOffset, fetchFolder]);
+  const handleBrowsePageChange = useCallback((page: number) => {
+    fetchFolder(currentPath, page);
+  }, [currentPath, fetchFolder]);
 
   const handleReindex = useCallback(async () => {
     setError(null);
@@ -228,7 +252,7 @@ export function DocumentViewer() {
   }, []);
 
   const handleRefresh = useCallback(() => {
-    fetchFolder(currentPath, 0);
+    fetchFolder(currentPath, 1);
   }, [currentPath, fetchFolder]);
 
   const handleDownload = async (key: string) => {
@@ -291,7 +315,7 @@ export function DocumentViewer() {
     }
     setCurrentPath(path);
     // Reset browse pagination
-    setBrowseOffset(0);
+    setBrowseCurrentPage(1);
   }, []);
 
   const handleNavigateUp = useCallback(() => {
@@ -331,12 +355,11 @@ export function DocumentViewer() {
   }, []);
 
   // Search handlers
-  const performSearch = useCallback(async (query: string, offset: number, append = false) => {
-    if (!append) {
-      setIsSearching(true);
-    }
+  const performSearch = useCallback(async (query: string, page = 1) => {
+    setIsSearching(true);
 
     try {
+      const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
         `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`
       );
@@ -344,28 +367,20 @@ export function DocumentViewer() {
 
       if (data.error) {
         setError(data.error);
-        if (!append) {
-          setSearchResults([]);
-          setSearchTotalHits(0);
-        }
+        setSearchResults([]);
+        setSearchTotalHits(0);
       } else {
-        if (append) {
-          setSearchResults(prev => [...prev, ...(data.hits || [])]);
-        } else {
-          setSearchResults(data.hits || []);
-        }
+        setSearchResults(data.hits || []);
         setSearchTotalHits(data.totalHits || 0);
-        setSearchOffset(offset);
+        setSearchCurrentPage(page);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Search failed");
-      if (!append) {
-        setSearchResults([]);
-        setSearchTotalHits(0);
-      }
+      setSearchResults([]);
+      setSearchTotalHits(0);
+      setSearchCurrentPage(1);
     } finally {
       setIsSearching(false);
-      setLoadingMoreSearch(false);
     }
   }, []);
 
@@ -376,7 +391,7 @@ export function DocumentViewer() {
       setIsSearchMode(false);
       setSearchResults([]);
       setSearchTotalHits(0);
-      setSearchOffset(0);
+      setSearchCurrentPage(1);
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.delete("q");
@@ -393,20 +408,19 @@ export function DocumentViewer() {
     }
 
     setIsSearchMode(true);
-    setSearchOffset(0);
-    performSearch(query, 0);
+    setSearchCurrentPage(1);
+    performSearch(query, 1);
   }, [performSearch]);
 
-  const handleLoadMoreSearch = useCallback(() => {
-    setLoadingMoreSearch(true);
-    performSearch(searchQuery, searchOffset + PAGE_SIZE, true);
-  }, [searchQuery, searchOffset, performSearch]);
+  const handleSearchPageChange = useCallback((page: number) => {
+    performSearch(searchQuery, page);
+  }, [searchQuery, performSearch]);
 
   const handleClearSearch = useCallback(() => {
     setSearchQuery("");
     setSearchResults([]);
     setSearchTotalHits(0);
-    setSearchOffset(0);
+    setSearchCurrentPage(1);
     setIsSearchMode(false);
     // Clear URL query param
     const url = new URL(window.location.href);
@@ -420,60 +434,62 @@ export function DocumentViewer() {
   }, [handleClearSearch, navigateToFolder]);
 
   // Recent files handlers
-  const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all", offset = 0, append = false) => {
-    if (!append) {
-      setIsLoadingRecent(true);
-    }
+  const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all", page = 1) => {
+    setIsLoadingRecent(true);
     try {
+      const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
         `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`
       );
       const data = await response.json();
       if (data.error) {
         setError(data.error);
-        if (!append) {
-          setRecentFiles([]);
-          setRecentTotalFiles(0);
-        }
+        setRecentFiles([]);
+        setRecentTotalFiles(0);
       } else {
-        if (append) {
-          setRecentFiles(prev => [...prev, ...(data.files || [])]);
-        } else {
-          setRecentFiles(data.files || []);
-        }
+        setRecentFiles(data.files || []);
         setRecentTotalFiles(data.totalFiles || 0);
-        setRecentOffset(offset);
+        setRecentCurrentPage(page);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load recent files");
-      if (!append) {
-        setRecentFiles([]);
-        setRecentTotalFiles(0);
-      }
+      setRecentFiles([]);
+      setRecentTotalFiles(0);
+      setRecentCurrentPage(1);
     } finally {
       setIsLoadingRecent(false);
-      setLoadingMoreRecent(false);
     }
   }, []);
 
-  const handleLoadMoreRecent = useCallback(() => {
-    setLoadingMoreRecent(true);
-    loadRecentFiles(recentTypeFilter, recentOffset + PAGE_SIZE, true);
-  }, [recentTypeFilter, recentOffset, loadRecentFiles]);
+  const handleRecentPageChange = useCallback((page: number) => {
+    const url = new URL(window.location.href);
+    if (page === 1) {
+      url.searchParams.delete("page");
+    } else {
+      url.searchParams.set("page", String(page));
+    }
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
+    loadRecentFiles(recentTypeFilter, page);
+  }, [recentTypeFilter, loadRecentFiles]);
 
   const handleShowRecent = useCallback(() => {
     window.history.pushState({}, "", "/recent");
     setIsRecentMode(true);
     setIsSearchMode(false);
     setSearchQuery("");
-    setRecentOffset(0);
-    loadRecentFiles(recentTypeFilter, 0);
+    // Start at page 1 when entering recent mode fresh
+    setRecentCurrentPage(1);
+    loadRecentFiles(recentTypeFilter, 1);
   }, [loadRecentFiles, recentTypeFilter]);
 
   const handleRecentTypeFilterChange = useCallback((filter: FileTypeFilter) => {
+    // Reset to page 1 and clear page from URL when filter changes
+    const url = new URL(window.location.href);
+    url.searchParams.delete("page");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
     setRecentTypeFilter(filter);
-    setRecentOffset(0);
-    loadRecentFiles(filter, 0);
+    setRecentCurrentPage(1);
+    loadRecentFiles(filter, 1);
   }, [loadRecentFiles]);
 
   const handleCloseRecent = useCallback(() => {
@@ -499,7 +515,10 @@ export function DocumentViewer() {
       handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
       // Use "all" directly since this is the initial mount and recentTypeFilter starts as "all"
-      loadRecentFiles("all", 0);
+      // Read page from URL to support direct links to specific pages
+      const pageFromUrl = getPageFromURL();
+      setRecentCurrentPage(pageFromUrl);
+      loadRecentFiles("all", pageFromUrl);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -519,14 +538,15 @@ export function DocumentViewer() {
         setPreviewContent("");
         setIsRecentMode(true);
         setIsSearchMode(false);
-        setRecentOffset(0);
-        loadRecentFiles(recentTypeFilter, 0);
+        const pageFromUrl = getPageFromURL();
+        setRecentCurrentPage(pageFromUrl);
+        loadRecentFiles(recentTypeFilter, pageFromUrl);
       } else {
         setPreviewFile(null);
         setPreviewContent("");
         const newPath = getFolderPathFromURL();
         setCurrentPath(newPath);
-        setBrowseOffset(0);
+        setBrowseCurrentPage(1);
         setIsRecentMode(false);
       }
 
@@ -538,7 +558,7 @@ export function DocumentViewer() {
           setSearchQuery("");
           setSearchResults([]);
           setSearchTotalHits(0);
-          setSearchOffset(0);
+          setSearchCurrentPage(1);
           setIsSearchMode(false);
         }
       }
@@ -690,9 +710,10 @@ export function DocumentViewer() {
             onPreview={handlePreview}
             onDownload={handleDownload}
             onNavigateToFolder={handleNavigateToFolderFromSearch}
-            onLoadMore={handleLoadMoreSearch}
-            hasMore={searchResults.length < searchTotalHits}
-            loadingMore={loadingMoreSearch}
+            currentPage={searchCurrentPage}
+            pageSize={PAGE_SIZE}
+            loading={isSearching}
+            onPageChange={handleSearchPageChange}
           />
         ) : isRecentMode ? (
           <RecentFiles
@@ -705,9 +726,9 @@ export function DocumentViewer() {
             onDownload={handleDownload}
             onNavigateToFolder={handleNavigateToFolderFromRecent}
             onClose={handleCloseRecent}
-            onLoadMore={handleLoadMoreRecent}
-            hasMore={recentFiles.length < recentTotalFiles}
-            loadingMore={loadingMoreRecent}
+            currentPage={recentCurrentPage}
+            pageSize={PAGE_SIZE}
+            onPageChange={handleRecentPageChange}
           />
         ) : (
           <>
@@ -754,13 +775,13 @@ export function DocumentViewer() {
               {/* Parent folder navigation */}
               {currentPath && (
                 <tr
-                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  className="border-t hover:bg-muted/30 cursor-pointer group"
                   onClick={handleNavigateUp}
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <Folder className="size-4" />
-                      <span>..</span>
+                      <span className="group-hover:underline">..</span>
                     </div>
                   </td>
                   <td className="p-3 text-right text-muted-foreground">
@@ -773,13 +794,13 @@ export function DocumentViewer() {
               {folders.map((folder) => (
                 <tr
                   key={folder}
-                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  className="border-t hover:bg-muted/30 cursor-pointer group"
                   onClick={() => navigateToFolder(currentPath ? `${currentPath}/${folder}` : folder)}
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <Folder className="size-4" />
-                      <span className="break-all">{folder}</span>
+                      <span className="break-all group-hover:underline">{folder}</span>
                     </div>
                   </td>
                   <td className="p-3 text-right text-muted-foreground">
@@ -792,7 +813,7 @@ export function DocumentViewer() {
               {files.map((obj) => (
                 <tr
                   key={obj.key}
-                  className={`border-t hover:bg-muted/30 ${isPreviewable(obj.key) ? 'cursor-pointer' : ''}`}
+                  className={`border-t hover:bg-muted/30 ${isPreviewable(obj.key) ? 'cursor-pointer group' : ''}`}
                   onClick={() => {
                     if (isPreviewable(obj.key)) {
                       handlePreview(obj.key);
@@ -802,7 +823,7 @@ export function DocumentViewer() {
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <FileText className="size-4 shrink-0" />
-                      <span className="break-all">{getFileName(obj.key)}</span>
+                      <span className="break-all group-hover:underline">{getFileName(obj.key)}</span>
                       <span className="text-muted-foreground text-xs whitespace-nowrap">
                         ({formatBytes(obj.size)})
                       </span>
@@ -858,11 +879,12 @@ export function DocumentViewer() {
         {/* Pagination for files */}
         {totalFiles > 0 && (
           <Pagination
-            current={files.length}
-            total={totalFiles}
-            loading={loadingMoreFiles}
-            hasMore={files.length < totalFiles}
-            onLoadMore={handleLoadMoreFiles}
+            currentPage={browseCurrentPage}
+            totalPages={Math.ceil(totalFiles / PAGE_SIZE)}
+            totalItems={totalFiles}
+            pageSize={PAGE_SIZE}
+            loading={loading}
+            onPageChange={handleBrowsePageChange}
           />
         )}
           </>

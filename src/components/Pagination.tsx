@@ -1,63 +1,127 @@
 import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface PaginationProps {
-  current: number;      // Items currently shown
-  total: number;        // Total available
+  currentPage: number;      // Current page (1-indexed)
+  totalPages: number;       // Total pages
+  totalItems: number;       // Total items for display
+  pageSize: number;         // Items per page
   loading: boolean;
-  hasMore: boolean;
-  onLoadMore: () => void;
+  onPageChange: (page: number) => void;
+}
+
+function getPageNumbers(currentPage: number, totalPages: number): (number | "ellipsis")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const pages: (number | "ellipsis")[] = [];
+
+  // Always show first page
+  pages.push(1);
+
+  if (currentPage <= 3) {
+    // Near start: [1] [2] [3] [4] ... [last]
+    pages.push(2, 3, 4, "ellipsis", totalPages);
+  } else if (currentPage >= totalPages - 2) {
+    // Near end: [1] ... [last-3] [last-2] [last-1] [last]
+    pages.push("ellipsis", totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+  } else {
+    // Middle: [1] ... [curr-1] [curr] [curr+1] ... [last]
+    pages.push("ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages);
+  }
+
+  return pages;
 }
 
 export function Pagination({
-  current,
-  total,
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
   loading,
-  hasMore,
-  onLoadMore,
+  onPageChange,
 }: PaginationProps) {
-  if (total === 0) return null;
+  // Hide pagination for zero results
+  if (totalItems === 0) return null;
+
+  const startItem = (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  const isFirstPage = currentPage === 1;
+  const isLastPage = currentPage === totalPages;
+
+  // For single page, just show count without navigation
+  if (totalPages <= 1) {
+    return (
+      <div className="flex items-center justify-between py-4">
+        <div className="text-sm text-muted-foreground">
+          Showing {startItem}-{endItem} of {totalItems}
+        </div>
+      </div>
+    );
+  }
+
+  const pageNumbers = getPageNumbers(currentPage, totalPages);
 
   return (
-    <div className="flex items-center justify-between py-4">
-      <div className="text-sm text-muted-foreground">
-        Showing {current} of {total}
+    <div className="flex items-center justify-between py-4 gap-4">
+      <div className="text-sm text-muted-foreground whitespace-nowrap">
+        Showing {startItem}-{endItem} of {totalItems}
       </div>
-      {hasMore && (
+
+      <div className="flex items-center gap-1">
+        {/* Previous button */}
         <Button
           variant="outline"
-          size="sm"
-          onClick={onLoadMore}
-          disabled={loading}
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={isFirstPage || loading}
+          title="Previous page"
         >
-          {loading ? (
-            <>
-              <svg
-                className="animate-spin -ml-1 mr-2 h-4 w-4"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
-              Loading...
-            </>
-          ) : (
-            "Load More"
-          )}
+          <ChevronLeft className="size-4" />
         </Button>
-      )}
+
+        {/* Page numbers */}
+        {pageNumbers.map((page, index) => {
+          if (page === "ellipsis") {
+            return (
+              <span
+                key={`ellipsis-${index}`}
+                className="px-2 text-muted-foreground"
+              >
+                ...
+              </span>
+            );
+          }
+
+          return (
+            <Button
+              key={page}
+              variant={page === currentPage ? "default" : "outline"}
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => onPageChange(page)}
+              disabled={loading}
+            >
+              {page}
+            </Button>
+          );
+        })}
+
+        {/* Next button */}
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={isLastPage || loading}
+          title="Next page"
+        >
+          <ChevronRight className="size-4" />
+        </Button>
+      </div>
     </div>
   );
 }
