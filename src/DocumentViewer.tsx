@@ -93,6 +93,16 @@ function getPageFromURL(): number {
   return Number.isNaN(page) || page < 1 ? 1 : page;
 }
 
+// Get type filter from URL query params
+function getTypeFilterFromURL(): FileTypeFilter {
+  const params = new URLSearchParams(window.location.search);
+  const type = params.get("type");
+  if (type === "txt" || type === "md") {
+    return type;
+  }
+  return "all";
+}
+
 // Get preview key from URL
 function getPreviewKeyFromURL(): string | null {
   const match = window.location.pathname.match(/^\/preview\/(.+)$/);
@@ -117,6 +127,17 @@ function getCurrentPageUrl(): string {
   const url = new URL(window.location.href);
   url.searchParams.delete("from");
   return url.pathname + url.search;
+}
+
+// Update page query param in URL and push to history
+function updatePageInURL(page: number): void {
+  const url = new URL(window.location.href);
+  if (page === 1) {
+    url.searchParams.delete("page");
+  } else {
+    url.searchParams.set("page", String(page));
+  }
+  window.history.pushState({}, "", `${url.pathname}${url.search}`);
 }
 
 const PAGE_SIZE = 50;
@@ -395,6 +416,12 @@ export function DocumentViewer() {
     } else {
       url.searchParams.set("page", String(page));
     }
+    // Preserve type filter in URL
+    if (recentTypeFilter === "all") {
+      url.searchParams.delete("type");
+    } else {
+      url.searchParams.set("type", recentTypeFilter);
+    }
     window.history.pushState({}, "", `${url.pathname}${url.search}`);
     loadRecentFiles(recentTypeFilter, page);
   }, [recentTypeFilter, loadRecentFiles]);
@@ -410,10 +437,15 @@ export function DocumentViewer() {
   }, [loadRecentFiles, recentTypeFilter]);
 
   const handleRecentTypeFilterChange = useCallback((filter: FileTypeFilter) => {
-    // Reset to page 1 and clear page from URL when filter changes
+    // Reset to page 1 and update type in URL when filter changes
     const url = new URL(window.location.href);
     url.searchParams.delete("page");
-    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
+    if (filter === "all") {
+      url.searchParams.delete("type");
+    } else {
+      url.searchParams.set("type", filter);
+    }
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
     setRecentTypeFilter(filter);
     setRecentCurrentPage(1);
     loadRecentFiles(filter, 1);
@@ -553,38 +585,20 @@ export function DocumentViewer() {
 
   const handleTitlesPageChange = useCallback((page: number) => {
     if (selectedCollection) {
-      const url = new URL(window.location.href);
-      if (page === 1) {
-        url.searchParams.delete("page");
-      } else {
-        url.searchParams.set("page", String(page));
-      }
-      window.history.pushState({}, "", `${url.pathname}${url.search}`);
+      updatePageInURL(page);
       loadCollectionTitles(selectedCollection, page);
     }
   }, [selectedCollection, loadCollectionTitles]);
 
   const handleCollectionPageChange = useCallback((page: number) => {
     if (selectedCollection && selectedTitle) {
-      const url = new URL(window.location.href);
-      if (page === 1) {
-        url.searchParams.delete("page");
-      } else {
-        url.searchParams.set("page", String(page));
-      }
-      window.history.pushState({}, "", `${url.pathname}${url.search}`);
+      updatePageInURL(page);
       loadCollectionTranscripts(selectedCollection, selectedTitle, page);
     }
   }, [selectedCollection, selectedTitle, loadCollectionTranscripts]);
 
   const handleCollectionsListPageChange = useCallback((page: number) => {
-    const url = new URL(window.location.href);
-    if (page === 1) {
-      url.searchParams.delete("page");
-    } else {
-      url.searchParams.set("page", String(page));
-    }
-    window.history.pushState({}, "", `${url.pathname}${url.search}`);
+    updatePageInURL(page);
     loadCollections(page);
   }, [loadCollections]);
 
@@ -645,8 +659,10 @@ export function DocumentViewer() {
       setIsRecentMode(true);
       setIsSearchMode(false);
       const pageFromUrl = getPageFromURL();
+      const typeFromUrl = getTypeFilterFromURL();
       setRecentCurrentPage(pageFromUrl);
-      loadRecentFiles(recentTypeFilter, pageFromUrl);
+      setRecentTypeFilter(typeFromUrl);
+      loadRecentFiles(typeFromUrl, pageFromUrl);
     }
 
     // Handle search query changes
@@ -659,7 +675,7 @@ export function DocumentViewer() {
       setSearchCurrentPage(1);
       setIsSearchMode(false);
     }
-  }, [handleSearch, loadRecentFiles, recentTypeFilter, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
+  }, [handleSearch, loadRecentFiles, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
 
   const closePreview = useCallback(() => {
     // Navigate to the return URL from query param, or fallback to /collections
@@ -687,26 +703,31 @@ export function DocumentViewer() {
     if (initialQuery) {
       handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
-      // Use "all" directly since this is the initial mount and recentTypeFilter starts as "all"
-      // Read page from URL to support direct links to specific pages
+      // Read page and type from URL to support direct links
       const pageFromUrl = getPageFromURL();
+      const typeFromUrl = getTypeFilterFromURL();
       setRecentCurrentPage(pageFromUrl);
-      loadRecentFiles("all", pageFromUrl);
+      setRecentTypeFilter(typeFromUrl);
+      loadRecentFiles(typeFromUrl, pageFromUrl);
     } else if (isCollectionsViewFromURL() || shouldRedirectToCollections()) {
       const collectionFromUrl = getCollectionFromURL();
       const titleFromUrl = getTitleFromURL();
+      const pageFromUrl = getPageFromURL();
       if (collectionFromUrl && titleFromUrl) {
         // URL: /collections/:collection/:title - load transcripts for this title
         setSelectedCollection(collectionFromUrl);
         setSelectedTitle(titleFromUrl);
-        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, 1);
+        setCollectionCurrentPage(pageFromUrl);
+        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
       } else if (collectionFromUrl) {
         // URL: /collections/:collection - load titles for this collection
         setSelectedCollection(collectionFromUrl);
-        loadCollectionTitles(collectionFromUrl, 1);
+        setTitlesCurrentPage(pageFromUrl);
+        loadCollectionTitles(collectionFromUrl, pageFromUrl);
       } else {
         // URL: /collections - load collections list
-        loadCollections();
+        setCollectionsListCurrentPage(pageFromUrl);
+        loadCollections(pageFromUrl);
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

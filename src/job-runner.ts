@@ -123,8 +123,12 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
     if (isS3NotFoundError(error)) {
       return null;
     }
-    // Log other errors
-    console.warn(`[JobRunner] Failed to fetch metadata at ${metadataKey}:`, error);
+    // Distinguish JSON parse errors from fetch errors
+    if (error instanceof SyntaxError) {
+      console.warn(`[JobRunner] Failed to parse metadata JSON at ${metadataKey}:`, error.message);
+    } else {
+      console.warn(`[JobRunner] Failed to fetch metadata at ${metadataKey}:`, error);
+    }
     return null;
   }
 }
@@ -221,6 +225,7 @@ async function runReindex() {
             creationDate = parsed;
             creationDateISO = metadata.creation_date;
           } else {
+            console.warn(`[JobRunner] Invalid metadata.creation_date "${metadata.creation_date}" for ${key}, using lastModified (${lastModified.toISOString()}) as fallback`);
             creationDate = lastModified;
             creationDateISO = lastModified.toISOString();
           }
