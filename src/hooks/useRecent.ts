@@ -50,6 +50,30 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
       const response = await fetch(
         `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`
       );
+
+      // Check HTTP status before parsing JSON
+      if (!response.ok) {
+        let errorMessage = `Failed to load recent files (${response.status} ${response.statusText})`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If JSON parsing fails, try to get the response body as text
+          try {
+            const errorText = await response.text();
+            if (errorText) {
+              errorMessage = errorText;
+            }
+          } catch {
+            // Ignore text parsing errors
+          }
+        }
+        onError(errorMessage);
+        setRecentFiles([]);
+        setRecentTotalFiles(0);
+        return;
+      }
+
       const data = await response.json();
       if (data.error) {
         onError(data.error);

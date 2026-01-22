@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { PAGE_SIZE, getSearchQueryFromURL } from "./utils";
 
 export interface SearchHit {
@@ -45,14 +45,44 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
   const [isSearchMode, setIsSearchMode] = useState(!!initialSearchQuery);
   const [searchCurrentPage, setSearchCurrentPage] = useState(1);
 
+  // Ref to track the current search request and abort prior ones
+  const searchAbortRef = useRef<AbortController | null>(null);
+
   const performSearch = useCallback(async (query: string, page = 1) => {
+    // Abort any prior search request
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+    }
+
+    // Create a new AbortController for this request
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
+
     setIsSearching(true);
 
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`
+        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`,
+        { signal: controller.signal }
       );
+
+      // Check HTTP status before parsing JSON
+      if (!response.ok) {
+        let errorMessage = `Search failed with status ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Ignore JSON parse errors for error response
+        }
+        onError(errorMessage);
+        setSearchResults([]);
+        setSearchTotalHits(0);
+        setIsSearching(false);
+        return;
+      }
+
       const data = await response.json();
 
       if (data.error) {
@@ -64,12 +94,16 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
         setSearchTotalHits(data.totalHits || 0);
         setSearchCurrentPage(page);
       }
+      setIsSearching(false);
     } catch (err) {
+      // Don't update state or call onError if the request was aborted
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       onError(err instanceof Error ? err.message : "Search failed");
       setSearchResults([]);
       setSearchTotalHits(0);
       setSearchCurrentPage(1);
-    } finally {
       setIsSearching(false);
     }
   }, [onError]);
