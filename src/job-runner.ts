@@ -55,6 +55,10 @@ const status: ReindexStatus = {
   lastResult: null,
 };
 
+// Lock to ensure only one reindex runs at a time
+// Uses synchronous check-and-set which is atomic in Node.js single-threaded event loop
+let reindexLock = false;
+
 function isIndexable(key: string): boolean {
   const ext = key.toLowerCase().split(".").pop();
   return ext ? INDEXABLE_EXTENSIONS.includes(ext) : false;
@@ -309,26 +313,19 @@ async function runReindex() {
 const app = express();
 
 app.post("/reindex", (_req, res) => {
-  if (status.running) {
+  // Atomic check-and-set (synchronous operations are atomic in Node.js single-threaded event loop)
+  if (reindexLock) {
     res.status(409).json({ error: "Reindex already in progress" });
     return;
   }
+  reindexLock = true;
 
   status.running = true;
   status.progress = { current: 0, total: 0 };
 
   // Run reindex in background (don't await)
-  runReindex().catch((err) => {
-    console.error("[JobRunner] Unexpected error in runReindex:", err);
-    status.running = false;
-    status.lastResult = {
-      success: false,
-      total: 0,
-      indexed: 0,
-      skipped: 0,
-      errors: 1,
-      completedAt: new Date().toISOString(),
-    };
+  runReindex().finally(() => {
+    reindexLock = false;
   });
 
   res.json({
