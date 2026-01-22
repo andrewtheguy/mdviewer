@@ -326,15 +326,13 @@ export function CollectionsView({
                           <span className="break-all font-medium">
                             {transcript.name}
                           </span>
-                          <span className="text-muted-foreground text-xs whitespace-nowrap">
+                          <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
                             ({formatBytes(transcript.size)})
                           </span>
                         </div>
-                        {transcript.creationDate && (
-                          <div className="sm:hidden text-xs text-muted-foreground">
-                            {getRelativeTime(transcript.creationDate)}
-                          </div>
-                        )}
+                        <div className="sm:hidden text-xs text-muted-foreground">
+                          {transcript.creationDate ? getRelativeTime(transcript.creationDate) : "Unknown"} ({formatBytes(transcript.size)})
+                        </div>
                       </div>
                     </td>
                     <td className="p-3 hidden sm:table-cell">

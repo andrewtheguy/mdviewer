@@ -104,7 +104,7 @@ export function SearchResults({
                         ) : (
                           <span className="break-all font-medium">{hit.title || hit.name}</span>
                         )}
-                        <span className="text-muted-foreground text-xs whitespace-nowrap">
+                        <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
                           ({formatBytes(hit.size)})
                         </span>
                       </div>
@@ -119,6 +119,7 @@ export function SearchResults({
                         </span>
                       )}
                       <div className="sm:hidden mt-1 text-xs text-muted-foreground">
+                        <span className="block mb-1">({formatBytes(hit.size)})</span>
                         {hit._formatted?.content ? (
                           <HighlightedText html={hit._formatted.content} />
                         ) : (

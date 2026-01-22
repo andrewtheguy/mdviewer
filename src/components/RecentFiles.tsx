@@ -134,7 +134,7 @@ export function RecentFiles({
                         <span className="break-all font-medium">
                           {file.name}
                         </span>
-                        <span className="text-muted-foreground text-xs whitespace-nowrap">
+                        <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
                           ({formatBytes(file.size)})
                         </span>
                       </div>
@@ -148,10 +148,8 @@ export function RecentFiles({
                           {file.collection}
                         </span>
                       )}
-                      <div className="sm:hidden flex flex-col gap-0.5 mt-1 text-muted-foreground">
-                        <span className="text-xs font-medium text-foreground">
-                          {getRelativeTime(displayDate)}
-                        </span>
+                      <div className="sm:hidden mt-1 text-xs text-muted-foreground">
+                        {getRelativeTime(displayDate)} ({formatBytes(file.size)})
                       </div>
                     </div>
                   </td>

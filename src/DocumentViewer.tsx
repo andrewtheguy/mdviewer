@@ -755,7 +755,7 @@ export function DocumentViewer() {
 
   return (
     <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
-      <CardHeader className="px-4 pb-4 sm:px-6">
+      <CardHeader className="px-2 pb-4 sm:px-6">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
@@ -779,12 +779,12 @@ export function DocumentViewer() {
       </CardHeader>
       <CardContent className="p-0 sm:p-6 pt-0 sm:pt-0 space-y-4">
         {error && (
-          <div className="mx-4 sm:mx-0 p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
+          <div className="mx-2 sm:mx-0 p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
             {error}
           </div>
         )}
 
-        <div className="px-4 sm:px-0 flex flex-col gap-3">
+        <div className="px-2 sm:px-0 flex flex-col gap-3">
            {/* Actions Toolbar */}
           <div className="flex flex-wrap items-center gap-2 border-b pb-3">
             <Button
@@ -817,11 +817,11 @@ export function DocumentViewer() {
           />
         </div>
 
-        <div className="px-4 sm:px-0">
+        <div className="px-2 sm:px-0">
           {previewFile ? (
             // Inline preview
             <div className="border rounded-lg">
-              <div className="flex items-center justify-between gap-3 p-4 border-b bg-muted/50">
+              <div className="flex items-center justify-between gap-3 p-2 sm:p-4 border-b bg-muted/50">
                 <div className="flex flex-col flex-1 min-w-0">
                   {previewMetadata?.collection && (
                     <span className="text-xs text-muted-foreground">{previewMetadata.collection}</span>
@@ -840,7 +840,7 @@ export function DocumentViewer() {
                   <X className="size-4" />
                 </Button>
               </div>
-              <div className="p-6 max-h-[70vh] overflow-auto">
+              <div className="p-3 sm:p-6 max-h-[70vh] overflow-auto">
                 {previewLoading ? (
                   <div className="text-center text-muted-foreground py-8">Loading...</div>
                 ) : isMarkdown(previewFile) ? (
