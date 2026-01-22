@@ -458,17 +458,17 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
   const typeFilter = options.type ?? "all";
 
-  // Build WHERE clause based on type filter
+  // Build WHERE clause based on type filter (parameterized)
   let whereClause = "";
-  if (typeFilter === "txt") {
-    whereClause = "WHERE extension = 'txt'";
-  } else if (typeFilter === "md") {
-    whereClause = "WHERE extension = 'md'";
+  const filterParams: string[] = [];
+  if (typeFilter === "txt" || typeFilter === "md") {
+    whereClause = "WHERE extension = ?";
+    filterParams.push(typeFilter);
   }
 
   // Get total count
   const countStmt = database.prepare(`SELECT COUNT(*) as count FROM documents ${whereClause}`);
-  const countResult = countStmt.get() as { count: number };
+  const countResult = countStmt.get(...filterParams) as { count: number };
   const totalFiles = countResult.count;
 
   // Get paginated results sorted by most recent first
@@ -480,7 +480,7 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
     LIMIT ? OFFSET ?
   `);
 
-  const rows = stmt.all(limit, offset) as Array<{
+  const rows = stmt.all(...filterParams, limit, offset) as Array<{
     key: string;
     name: string;
     path: string;

@@ -3,8 +3,13 @@ import path from "path";
 import { search, listDocuments, getRecentDocuments, getDocument } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
-// Decode base64 URL-safe encoded key
+// Validate and decode base64 URL-safe encoded key
+// Throws Error if input contains invalid base64url characters
 function decodeKey(encoded: string): string {
+  // base64url allows: A-Z, a-z, 0-9, -, _ (no padding required)
+  if (!/^[A-Za-z0-9_-]*$/.test(encoded)) {
+    throw new Error("Invalid base64url characters");
+  }
   return Buffer.from(encoded, "base64url").toString("utf-8");
 }
 
@@ -103,7 +108,15 @@ app.get("/api/documents/download", (req, res) => {
       res.status(400).json({ error: "Missing key parameter" });
       return;
     }
-    const key = decodeKey(encodedKey);
+
+    let key: string;
+    try {
+      key = decodeKey(encodedKey);
+    } catch {
+      res.status(400).json({ error: "Invalid key parameter" });
+      return;
+    }
+
     const doc = getDocument(key);
 
     if (!doc) {
