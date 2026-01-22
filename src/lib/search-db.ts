@@ -572,6 +572,26 @@ export function getDocument(key: string): DocumentRecord | null {
   return result ?? null;
 }
 
+export interface DocumentMetadata {
+  key: string;
+  collection: string | null;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
+}
+
+// Get document metadata by key (for preview API)
+export function getDocumentMetadata(key: string): DocumentMetadata | null {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    SELECT key, collection, title, creation_date as creationDate, creation_date_iso as creationDateISO
+    FROM documents
+    WHERE key = ?
+  `);
+  const result = stmt.get(key) as DocumentMetadata | undefined;
+  return result ?? null;
+}
+
 export interface BrowseFolderOptions {
   path: string;
   limit?: number;

@@ -25,7 +25,6 @@ interface RecentFilesProps {
   onTypeFilterChange: (filter: FileTypeFilter) => void;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
-  onNavigateToFolder: (path: string) => void;
   onClose: () => void;
   currentPage: number;
   pageSize: number;
@@ -66,7 +65,6 @@ export function RecentFiles({
   onTypeFilterChange,
   onPreview,
   onDownload,
-  onNavigateToFolder,
   onClose,
   currentPage,
   pageSize,
@@ -90,7 +88,7 @@ export function RecentFiles({
             No recent .txt or .md files found
           </div>
           <Button variant="ghost" size="sm" onClick={onClose}>
-            Back to browse
+            Back to Collections
           </Button>
         </div>
       </div>
@@ -120,7 +118,7 @@ export function RecentFiles({
         </div>
         <Button variant="ghost" size="sm" onClick={onClose} className="w-full sm:w-auto gap-2">
           <ChevronLeft className="size-4" />
-          Back to Browse
+          Back to Collections
         </Button>
       </div>
 
@@ -165,15 +163,9 @@ export function RecentFiles({
                         </span>
                       )}
                       {file.path && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onNavigateToFolder(file.path);
-                          }}
-                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left break-all"
-                        >
+                        <span className="text-xs text-muted-foreground break-all">
                           /{file.path}
-                        </button>
+                        </span>
                       )}
                       <div className="sm:hidden flex flex-col gap-0.5 mt-1 text-muted-foreground">
                         <span className="text-xs font-medium text-foreground">

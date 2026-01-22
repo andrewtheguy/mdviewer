@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, browseFolder, getCollections, getCollectionTranscripts } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTranscripts } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
 // Validate and decode base64 URL-safe encoded key
@@ -198,8 +198,16 @@ app.get("/api/documents/preview", (req, res) => {
       return;
     }
 
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.send(doc.content);
+    // Get metadata for the document
+    const metadata = getDocumentMetadata(key);
+
+    res.json({
+      content: doc.content,
+      collection: metadata?.collection ?? null,
+      title: metadata?.title ?? null,
+      creationDate: metadata?.creationDate ?? null,
+      creationDateISO: metadata?.creationDateISO ?? null,
+    });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to preview file",

@@ -28,7 +28,6 @@ interface SearchResultsProps {
   totalHits: number;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
-  onNavigateToFolder: (path: string) => void;
   currentPage: number;
   pageSize: number;
   loading: boolean;
@@ -58,7 +57,6 @@ export function SearchResults({
   totalHits,
   onPreview,
   onDownload,
-  onNavigateToFolder,
   currentPage,
   pageSize,
   loading,
@@ -116,12 +114,9 @@ export function SearchResults({
                         </span>
                       )}
                       {hit.path && (
-                        <button
-                          onClick={() => onNavigateToFolder(hit.path)}
-                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left break-all"
-                        >
+                        <span className="text-xs text-muted-foreground break-all">
                           /{hit.path}
-                        </button>
+                        </span>
                       )}
                       <div className="sm:hidden mt-1 text-xs text-muted-foreground">
                         {hit._formatted?.content ? (
