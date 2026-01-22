@@ -10,3 +10,9 @@ Dockerfile
 docker-compose.yml
 .dockerignore
 data
+dumps
+.DS_Store
+.cursor
+.github
+*.log
+bun-env.d.ts
