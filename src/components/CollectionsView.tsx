@@ -129,7 +129,7 @@ export function CollectionsView({
     if (collections.length === 0) {
       return (
         <div className="space-y-4">
-          <div className="text-sm text-muted-foreground">
+          <div className="text-sm text-muted-foreground px-4 sm:px-0">
             No collections found. Collections are created from metadata.json files.
           </div>
         </div>
@@ -138,7 +138,7 @@ export function CollectionsView({
 
     return (
       <div className="space-y-4">
-        <div className="bg-muted/30 p-3 rounded-lg border">
+        <div className="bg-muted/30 p-3 sm:rounded-lg border-0 sm:border rounded-none">
           <div className="text-sm font-medium">
             Collections <span className="text-muted-foreground font-normal">({totalCollections})</span>
           </div>
@@ -197,7 +197,7 @@ export function CollectionsView({
     if (titles.length === 0) {
       return (
         <div className="space-y-4">
-          <div className="flex items-center gap-3 bg-muted/30 p-3 rounded-lg border">
+          <div className="flex items-center gap-3 bg-muted/30 p-3 sm:rounded-lg border-0 sm:border rounded-none">
             <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
               <ChevronLeft className="size-4" />
               Back
@@ -216,7 +216,7 @@ export function CollectionsView({
 
     return (
       <div className="space-y-4">
-        <div className="flex items-center gap-3 bg-muted/30 p-3 rounded-lg border">
+        <div className="flex items-center gap-3 bg-muted/30 p-3 sm:rounded-lg border-0 sm:border rounded-none">
           <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
             <ChevronLeft className="size-4" />
             Back
@@ -281,7 +281,7 @@ export function CollectionsView({
   // Level 3: Collection and title selected - show files with extensions (filename, not title)
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3 bg-muted/30 p-3 rounded-lg border">
+      <div className="flex items-center gap-3 bg-muted/30 p-3 sm:rounded-lg border-0 sm:border rounded-none">
         <Button variant="ghost" size="sm" onClick={onTitleBack} className="gap-2">
           <ChevronLeft className="size-4" />
           Back

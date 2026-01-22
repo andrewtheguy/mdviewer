@@ -90,7 +90,7 @@ export function RecentFiles({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-muted/30 p-3 rounded-lg border">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-muted/30 p-3 sm:rounded-lg border-0 sm:border rounded-none">
         <div className="text-sm font-medium">
           Recent Files <span className="text-muted-foreground font-normal">({totalFiles})</span>
         </div>
@@ -109,7 +109,7 @@ export function RecentFiles({
         </div>
       </div>
 
-      <div className="border rounded-lg overflow-x-auto">
+      <div className="border-0 sm:border rounded-none sm:rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>

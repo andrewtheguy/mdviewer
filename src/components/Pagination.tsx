@@ -56,7 +56,7 @@ export function Pagination({
   const pageNumbers = getPageNumbers(currentPage, effectiveTotalPages);
 
   return (
-    <div className="flex items-center justify-between py-4 gap-4">
+    <div className="flex items-center justify-between py-4 px-4 sm:px-0 gap-4">
       <div className="text-sm text-muted-foreground whitespace-nowrap">
         Showing {startItem}-{endItem} of {totalItems}
       </div>

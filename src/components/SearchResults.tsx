@@ -73,11 +73,11 @@ export function SearchResults({
 
   return (
     <div className="space-y-2">
-      <div className="text-sm text-muted-foreground mb-4">
+      <div className="text-sm text-muted-foreground mb-4 px-4 sm:px-0">
         Found {totalHits} result{totalHits !== 1 ? "s" : ""} for "{query}"
       </div>
 
-      <div className="border rounded-lg overflow-x-auto">
+      <div className="border-0 sm:border rounded-none sm:rounded-lg overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
