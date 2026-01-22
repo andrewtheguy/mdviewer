@@ -68,7 +68,7 @@ export function RecentFiles({
   pageSize,
   onPageChange,
 }: RecentFilesProps) {
-  const totalPages = Math.ceil(totalFiles / pageSize);
+  const totalPages = pageSize <= 0 ? 0 : Math.ceil(totalFiles / pageSize);
 
   if (loading) {
     return (

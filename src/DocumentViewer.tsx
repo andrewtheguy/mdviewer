@@ -83,6 +83,15 @@ function isRecentViewFromURL(): boolean {
   return window.location.pathname === "/recent";
 }
 
+// Get page number from URL query params
+function getPageFromURL(): number {
+  const params = new URLSearchParams(window.location.search);
+  const pageStr = params.get("page");
+  if (!pageStr) return 1;
+  const page = parseInt(pageStr, 10);
+  return Number.isNaN(page) || page < 1 ? 1 : page;
+}
+
 // Get preview key from URL
 function getPreviewKeyFromURL(): string | null {
   const match = window.location.pathname.match(/^\/preview\/(.+)$/);
@@ -175,6 +184,10 @@ export function DocumentViewer() {
       const data = await response.json();
       if (data.error) {
         setError(data.error);
+        setFolders([]);
+        setFiles([]);
+        setTotalFiles(0);
+        setBrowseCurrentPage(1);
       } else {
         setFolders(data.folders || []);
         setFiles(data.files || []);
@@ -183,6 +196,10 @@ export function DocumentViewer() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch folder");
+      setFolders([]);
+      setFiles([]);
+      setTotalFiles(0);
+      setBrowseCurrentPage(1);
     } finally {
       setLoading(false);
     }
@@ -344,6 +361,7 @@ export function DocumentViewer() {
       setError(err instanceof Error ? err.message : "Search failed");
       setSearchResults([]);
       setSearchTotalHits(0);
+      setSearchCurrentPage(1);
     } finally {
       setIsSearching(false);
     }
@@ -420,12 +438,20 @@ export function DocumentViewer() {
       setError(err instanceof Error ? err.message : "Failed to load recent files");
       setRecentFiles([]);
       setRecentTotalFiles(0);
+      setRecentCurrentPage(1);
     } finally {
       setIsLoadingRecent(false);
     }
   }, []);
 
   const handleRecentPageChange = useCallback((page: number) => {
+    const url = new URL(window.location.href);
+    if (page === 1) {
+      url.searchParams.delete("page");
+    } else {
+      url.searchParams.set("page", String(page));
+    }
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
     loadRecentFiles(recentTypeFilter, page);
   }, [recentTypeFilter, loadRecentFiles]);
 
@@ -434,11 +460,16 @@ export function DocumentViewer() {
     setIsRecentMode(true);
     setIsSearchMode(false);
     setSearchQuery("");
+    // Start at page 1 when entering recent mode fresh
     setRecentCurrentPage(1);
     loadRecentFiles(recentTypeFilter, 1);
   }, [loadRecentFiles, recentTypeFilter]);
 
   const handleRecentTypeFilterChange = useCallback((filter: FileTypeFilter) => {
+    // Reset to page 1 and clear page from URL when filter changes
+    const url = new URL(window.location.href);
+    url.searchParams.delete("page");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}`);
     setRecentTypeFilter(filter);
     setRecentCurrentPage(1);
     loadRecentFiles(filter, 1);
@@ -467,7 +498,10 @@ export function DocumentViewer() {
       handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
       // Use "all" directly since this is the initial mount and recentTypeFilter starts as "all"
-      loadRecentFiles("all", 1);
+      // Read page from URL to support direct links to specific pages
+      const pageFromUrl = getPageFromURL();
+      setRecentCurrentPage(pageFromUrl);
+      loadRecentFiles("all", pageFromUrl);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -487,8 +521,9 @@ export function DocumentViewer() {
         setPreviewContent("");
         setIsRecentMode(true);
         setIsSearchMode(false);
-        setRecentCurrentPage(1);
-        loadRecentFiles(recentTypeFilter, 1);
+        const pageFromUrl = getPageFromURL();
+        setRecentCurrentPage(pageFromUrl);
+        loadRecentFiles(recentTypeFilter, pageFromUrl);
       } else {
         setPreviewFile(null);
         setPreviewContent("");

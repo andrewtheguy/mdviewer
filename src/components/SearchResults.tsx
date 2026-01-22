@@ -60,7 +60,7 @@ export function SearchResults({
   loading,
   onPageChange,
 }: SearchResultsProps) {
-  const totalPages = Math.ceil(totalHits / pageSize);
+  const totalPages = pageSize <= 0 ? 0 : Math.ceil(totalHits / pageSize);
   if (hits.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-8">
