@@ -70,14 +70,6 @@ The job runner handles background tasks like reindexing:
 npm run job-runner
 ```
 
-### Index your files
-
-Trigger a full reindex to populate the search index:
-
-```bash
-curl -X POST http://localhost:3000/api/search/reindex
-```
-
 ## Docker
 
 Build and run with Docker:
