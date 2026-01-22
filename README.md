@@ -102,7 +102,6 @@ docker-compose up
 | GET | `/api/s3/list` | List all objects in the bucket |
 | GET | `/api/s3/recent` | List recent `.txt` and `.md` files |
 | GET | `/api/s3/download?key=<encoded>` | Download a file |
-| DELETE | `/api/s3/delete?key=<encoded>` | Delete a file |
 | GET | `/api/s3/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
 
 ### Search Operations

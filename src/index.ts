@@ -124,23 +124,6 @@ app.get("/api/s3/download", async (req, res) => {
   }
 });
 
-app.delete("/api/s3/delete", async (req, res) => {
-  try {
-    const encodedKey = req.query.key as string | undefined;
-    if (!encodedKey) {
-      res.status(400).json({ error: "Missing key parameter" });
-      return;
-    }
-    const key = decodeKey(encodedKey);
-    await s3.delete(key);
-    res.json({ success: true, key });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to delete file",
-    });
-  }
-});
-
 app.get("/api/s3/preview", async (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;
