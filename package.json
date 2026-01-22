@@ -8,11 +8,11 @@
   },
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:server": "node --env-file=.env --import tsx --watch src/index.ts",
+    "dev:server": "node --env-file-if-exists=.env --import tsx --watch src/index.ts",
     "dev:client": "vite",
     "build": "vite build",
-    "start": "node --env-file=.env --import tsx src/index.ts",
-    "job-runner": "node --env-file=.env --import tsx src/job-runner.ts"
+    "start": "node --env-file-if-exists=.env --import tsx src/index.ts",
+    "job-runner": "node --env-file-if-exists=.env --import tsx src/job-runner.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.972.0",
