@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { PAGE_SIZE, getSearchQueryFromURL } from "./utils";
 
 export interface SearchHit {
@@ -47,6 +47,15 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
 
   // Ref to track the current search request and abort prior ones
   const searchAbortRef = useRef<AbortController | null>(null);
+
+  // Cleanup: abort any pending request on unmount
+  useEffect(() => {
+    return () => {
+      if (searchAbortRef.current) {
+        searchAbortRef.current.abort();
+      }
+    };
+  }, []);
 
   const performSearch = useCallback(async (query: string, page = 1) => {
     // Abort any prior search request
@@ -142,6 +151,11 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
   }, [searchQuery, performSearch]);
 
   const handleClearSearch = useCallback(() => {
+    // Abort any in-flight search request
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+      searchAbortRef.current = null;
+    }
     setSearchQuery("");
     setSearchResults([]);
     setSearchTotalHits(0);
@@ -161,6 +175,11 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
   }, []);
 
   const clearSearchState = useCallback(() => {
+    // Abort any in-flight search request
+    if (searchAbortRef.current) {
+      searchAbortRef.current.abort();
+      searchAbortRef.current = null;
+    }
     setSearchQuery("");
     setSearchResults([]);
     setSearchTotalHits(0);
