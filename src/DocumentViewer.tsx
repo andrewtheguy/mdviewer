@@ -414,7 +414,7 @@ export function DocumentViewer() {
                   <X className="size-4" />
                 </Button>
               </div>
-              <div className="p-3 sm:p-6 max-h-[70vh] overflow-auto">
+              <div className="p-3 sm:p-6">
                 {preview.previewLoading ? (
                   <div className="text-center text-muted-foreground py-8">Loading...</div>
                 ) : preview.previewError ? (
