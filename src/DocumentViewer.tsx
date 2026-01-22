@@ -214,11 +214,11 @@ export function DocumentViewer() {
       setTotalFiles(0);
       setBrowseCurrentPage(1);
     } finally {
-      // Clear ref if this controller is still the current one
+      // Only update state if this controller is still the current one
       if (browseAbortControllerRef.current === controller) {
         browseAbortControllerRef.current = null;
+        setLoading(false);
       }
-      setLoading(false);
     }
   }, []);
 
