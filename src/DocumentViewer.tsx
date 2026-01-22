@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
@@ -119,6 +119,7 @@ export function DocumentViewer() {
   const [files, setFiles] = useState<DocumentItem[]>([]);
   const [totalFiles, setTotalFiles] = useState(0);
   const [browseCurrentPage, setBrowseCurrentPage] = useState(1);
+  const browseAbortControllerRef = useRef<AbortController | null>(null);
 
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
 
@@ -174,12 +175,20 @@ export function DocumentViewer() {
 
   // Fetch folder contents from API
   const fetchFolder = useCallback(async (path: string, page = 1) => {
+    // Abort any previous request
+    if (browseAbortControllerRef.current) {
+      browseAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    browseAbortControllerRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/documents/browse?path=${encodeURIComponent(path)}&limit=${PAGE_SIZE}&offset=${offset}`
+        `/api/documents/browse?path=${encodeURIComponent(path)}&limit=${PAGE_SIZE}&offset=${offset}`,
+        { signal: controller.signal }
       );
       const data = await response.json();
       if (data.error) {
@@ -195,12 +204,20 @@ export function DocumentViewer() {
         setBrowseCurrentPage(page);
       }
     } catch (err) {
+      // Ignore abort errors
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Failed to fetch folder");
       setFolders([]);
       setFiles([]);
       setTotalFiles(0);
       setBrowseCurrentPage(1);
     } finally {
+      // Clear ref if this controller is still the current one
+      if (browseAbortControllerRef.current === controller) {
+        browseAbortControllerRef.current = null;
+      }
       setLoading(false);
     }
   }, []);
