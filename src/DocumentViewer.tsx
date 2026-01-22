@@ -23,10 +23,28 @@ interface DocumentItem {
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 Bytes";
+
+  // Handle negative values
+  const sign = bytes < 0 ? "-" : "";
+  const absBytes = Math.abs(bytes);
+
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+
+  // For fractions < 1, Math.log would be negative, so force i = 0
+  // For very large values, clamp i to avoid indexing past sizes array
+  let i: number;
+  if (absBytes < 1) {
+    i = 0;
+  } else {
+    i = Math.min(
+      Math.floor(Math.log(absBytes) / Math.log(k)),
+      sizes.length - 1
+    );
+  }
+
+  const value = parseFloat((absBytes / Math.pow(k, i)).toFixed(2));
+  return sign + value + " " + sizes[i];
 }
 
 // Decode base64 URL-safe key
@@ -64,6 +82,19 @@ function isRecentViewFromURL(): boolean {
   return window.location.pathname === "/recent";
 }
 
+// Get preview key from URL
+function getPreviewKeyFromURL(): string | null {
+  const match = window.location.pathname.match(/^\/preview\/(.+)$/);
+  if (match && match[1]) {
+    try {
+      return decodeKey(match[1]);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 const PAGE_SIZE = 50;
 
 export function DocumentViewer() {
@@ -79,19 +110,6 @@ export function DocumentViewer() {
   const [totalFiles, setTotalFiles] = useState(0);
   const [browseOffset, setBrowseOffset] = useState(0);
   const [loadingMoreFiles, setLoadingMoreFiles] = useState(false);
-
-  // Get preview key from URL
-  const getPreviewKeyFromURL = (): string | null => {
-    const match = window.location.pathname.match(/^\/preview\/(.+)$/);
-    if (match && match[1]) {
-      try {
-        return decodeKey(match[1]);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  };
 
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
 
@@ -216,8 +234,15 @@ export function DocumentViewer() {
     try {
       const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
       if (!response.ok) {
-        const data = await response.json();
-        setError(data.error || "Failed to download file");
+        let errorMessage = "Failed to download file";
+        try {
+          const data = await response.json();
+          errorMessage = data.error || errorMessage;
+        } catch {
+          const text = await response.text().catch(() => "");
+          errorMessage = text || response.statusText || errorMessage;
+        }
+        setError(errorMessage);
         return;
       }
 
@@ -271,8 +296,15 @@ export function DocumentViewer() {
     try {
       const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`);
       if (!response.ok) {
-        const data = await response.json();
-        setPreviewContent(`Error: ${data.error || "Failed to preview file"}`);
+        let errorMessage = "Failed to preview file";
+        try {
+          const data = await response.json();
+          errorMessage = data.error || errorMessage;
+        } catch {
+          const text = await response.text().catch(() => "");
+          errorMessage = text || response.statusText || errorMessage;
+        }
+        setPreviewContent(`Error: ${errorMessage}`);
         return;
       }
       const content = await response.text();
