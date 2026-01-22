@@ -159,18 +159,22 @@ function registerExitHandlers(): void {
 registerExitHandlers();
 
 function initializeSchema(database: Database.Database): void {
+  // Always drop and recreate tables (no backwards compatibility needed)
   database.exec(`
+    DROP TRIGGER IF EXISTS documents_ai;
+    DROP TRIGGER IF EXISTS documents_ad;
+    DROP TRIGGER IF EXISTS documents_au;
+    DROP TABLE IF EXISTS documents_fts;
+    DROP TABLE IF EXISTS documents;
+
     ${DOCUMENTS_TABLE_DEFINITION}
 
     ${FTS_TABLE_DEFINITION}
 
     ${TRIGGER_DEFINITIONS}
 
-    -- Index for faster lookups by key
     CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-    -- Index for collection queries
     CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
-    -- Index for sorting by creation date
     CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
   `);
 }
