@@ -40,7 +40,7 @@ interface ReindexStatus {
   } | null;
 }
 
-let status: ReindexStatus = {
+const status: ReindexStatus = {
   running: false,
   progress: { current: 0, total: 0 },
   lastResult: null,
