@@ -114,9 +114,9 @@ export function SearchResults({
                           {hit.collection}
                         </span>
                       )}
-                      {hit.path && (
+                      {hit.title && (
                         <span className="text-xs text-muted-foreground break-all">
-                          /{hit.path}
+                          {hit.title}
                         </span>
                       )}
                     </div>
