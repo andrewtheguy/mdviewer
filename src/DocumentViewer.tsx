@@ -289,6 +289,11 @@ export function DocumentViewer() {
     setBrowseOffset(0);
   }, []);
 
+  const handleNavigateUp = useCallback(() => {
+    const parentPath = currentPath.split("/").slice(0, -1).join("/");
+    navigateToFolder(parentPath);
+  }, [currentPath, navigateToFolder]);
+
   const loadPreviewContent = useCallback(async (key: string) => {
     setPreviewLoading(true);
     setPreviewContent("");
@@ -687,6 +692,7 @@ export function DocumentViewer() {
               <span key={pathToHere} className="flex items-center gap-1">
                 <span className="text-muted-foreground">&gt;</span>
                 <button
+                  type="button"
                   onClick={() => navigateToFolder(pathToHere)}
                   className="hover:text-primary hover:underline max-w-[200px] truncate"
                   title={segment}
@@ -712,10 +718,7 @@ export function DocumentViewer() {
               {currentPath && (
                 <tr
                   className="border-t hover:bg-muted/30 cursor-pointer"
-                  onClick={() => {
-                    const parentPath = currentPath.split("/").slice(0, -1).join("/");
-                    navigateToFolder(parentPath);
-                  }}
+                  onClick={handleNavigateUp}
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
@@ -732,10 +735,7 @@ export function DocumentViewer() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => {
-                        const parentPath = currentPath.split("/").slice(0, -1).join("/");
-                        navigateToFolder(parentPath);
-                      }}
+                      onClick={handleNavigateUp}
                     >
                       Back
                     </Button>
