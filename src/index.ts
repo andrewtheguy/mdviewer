@@ -105,7 +105,7 @@ app.get("/api/documents/list", (req, res) => {
 // Browse folder endpoint - returns folders and paginated files at a path
 app.get("/api/documents/browse", (req, res) => {
   try {
-    const path = (req.query.path as string) || "";
+    const requestPath = (req.query.path as string) || "";
 
     // Parse and validate limit
     let limit = parseInt((req.query.limit as string) || "50", 10);
@@ -121,7 +121,7 @@ app.get("/api/documents/browse", (req, res) => {
       offset = 0;
     }
 
-    const result = browseFolder({ path, limit, offset });
+    const result = browseFolder({ path: requestPath, limit, offset });
     res.json(result);
   } catch (error) {
     res.status(500).json({

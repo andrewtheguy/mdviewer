@@ -450,9 +450,10 @@ export function DocumentViewer() {
     if (initialQuery) {
       handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
-      loadRecentFiles(recentTypeFilter, 0);
+      // Use "all" directly since this is the initial mount and recentTypeFilter starts as "all"
+      loadRecentFiles("all", 0);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [handleSearch, loadRecentFiles]);
 
   // Handle browser back/forward
   useEffect(() => {

@@ -528,6 +528,11 @@ export interface BrowseFolderResult {
   totalFiles: number;
 }
 
+// Escape LIKE wildcards for literal matching
+function escapeLikePattern(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 // Browse a folder - returns subfolders and paginated files at the given path
 export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
   const database = getDatabase();
@@ -540,16 +545,19 @@ export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
   // If path is "foo", we match "foo/..." but not "foobar/..."
   const prefix = path ? path + "/" : "";
 
+  // Escape LIKE wildcards in the prefix for literal matching
+  const escapedPrefix = escapeLikePattern(prefix);
+
   // Get all unique immediate subfolders and files at this path level
   // We need to query all documents under this prefix and then parse them
   const allDocsStmt = database.prepare(`
     SELECT key, size, last_modified_iso as lastModified
     FROM documents
-    WHERE key LIKE ? || '%'
+    WHERE key LIKE ? ESCAPE '\\'
     ORDER BY key ASC
   `);
 
-  const allDocs = allDocsStmt.all(prefix) as Array<{
+  const allDocs = allDocsStmt.all(escapedPrefix + "%") as Array<{
     key: string;
     size: number;
     lastModified: string | null;
