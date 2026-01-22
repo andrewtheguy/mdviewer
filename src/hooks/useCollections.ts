@@ -87,6 +87,13 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(`/api/collections?limit=${PAGE_SIZE}&offset=${offset}`);
+      if (!response.ok) {
+        const errorBody = await response.text();
+        onError(`Failed to load collections: ${response.status} ${errorBody || response.statusText}`);
+        setCollections([]);
+        setTotalCollections(0);
+        return;
+      }
       const data = await response.json();
       if (data.error) {
         onError(data.error);
@@ -113,6 +120,13 @@ export function useCollections(onError: (error: string | null) => void): UseColl
       const response = await fetch(
         `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}`
       );
+      if (!response.ok) {
+        const errorBody = await response.text();
+        onError(`Failed to load collection titles: ${response.status} ${errorBody || response.statusText}`);
+        setCollectionTitles([]);
+        setTotalCollectionTitles(0);
+        return;
+      }
       const data = await response.json();
       if (data.error) {
         onError(data.error);
@@ -139,6 +153,13 @@ export function useCollections(onError: (error: string | null) => void): UseColl
       const response = await fetch(
         `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}`
       );
+      if (!response.ok) {
+        const errorBody = await response.text();
+        onError(`Failed to load collection transcripts: ${response.status} ${errorBody || response.statusText}`);
+        setCollectionTranscripts([]);
+        setCollectionTotalTranscripts(0);
+        return;
+      }
       const data = await response.json();
       if (data.error) {
         onError(data.error);
