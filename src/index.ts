@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTranscripts } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
 // Validate and decode base64 URL-safe encoded key
@@ -361,7 +361,36 @@ app.get("/api/collections/:collection", (req, res) => {
       offset = 0;
     }
 
-    const result = getCollectionTranscripts(collection, { limit, offset });
+    // Return grouped titles for this collection
+    const result = getCollectionTitles(collection, { limit, offset });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get collection titles",
+    });
+  }
+});
+
+app.get("/api/collections/:collection/transcripts/:title", (req, res) => {
+  try {
+    const { collection, title } = req.params;
+
+    // Parse and validate limit
+    let limit = parseInt((req.query.limit as string) || "50", 10);
+    if (isNaN(limit) || limit < 0) {
+      limit = 50;
+    } else if (limit > 100) {
+      limit = 100;
+    }
+
+    // Parse and validate offset
+    let offset = parseInt((req.query.offset as string) || "0", 10);
+    if (isNaN(offset) || offset < 0) {
+      offset = 0;
+    }
+
+    // Return transcripts for this specific title within the collection
+    const result = getCollectionTranscripts(collection, { limit, offset, title });
     res.json(result);
   } catch (error) {
     res.status(500).json({

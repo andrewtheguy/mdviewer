@@ -738,34 +738,106 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
   return { collections: rows, total };
 }
 
-// Get transcripts in a collection
-export function getCollectionTranscripts(
+// Collection title interfaces
+export interface CollectionTitle {
+  title: string;  // "Untitled" for null titles
+  count: number;
+  latestCreationDate: string | null;
+}
+
+export interface CollectionTitlesResult {
+  titles: CollectionTitle[];
+  collection: string;
+  total: number;
+}
+
+// Get titles grouped within a collection
+export function getCollectionTitles(
   collection: string,
   options: { limit?: number; offset?: number } = {}
-): CollectionTranscriptsResult {
+): CollectionTitlesResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
-  // Get total count for this collection
+  // Get total count of distinct titles in this collection
   const countStmt = database.prepare(`
-    SELECT COUNT(*) as count
+    SELECT COUNT(DISTINCT COALESCE(title, 'Untitled')) as count
     FROM documents
     WHERE collection = ?
   `);
   const countResult = countStmt.get(collection) as { count: number };
   const total = countResult.count;
 
+  // Get paginated titles sorted by latest creation date DESC
+  const stmt = database.prepare(`
+    SELECT
+      COALESCE(title, 'Untitled') as title,
+      COUNT(*) as count,
+      MAX(creation_date_iso) as latestCreationDate
+    FROM documents
+    WHERE collection = ?
+    GROUP BY COALESCE(title, 'Untitled')
+    ORDER BY MAX(creation_date) DESC
+    LIMIT ? OFFSET ?
+  `);
+
+  const titles = stmt.all(collection, limit, offset) as CollectionTitle[];
+
+  return {
+    titles,
+    collection,
+    total,
+  };
+}
+
+// Get transcripts in a collection (optionally filtered by title)
+export function getCollectionTranscripts(
+  collection: string,
+  options: { limit?: number; offset?: number; title?: string } = {}
+): CollectionTranscriptsResult {
+  const database = getDatabase();
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+  const titleFilter = options.title;
+
+  // Build WHERE clause based on title filter
+  let whereClause = "WHERE collection = ?";
+  const countParams: (string | null)[] = [collection];
+  const selectParams: (string | null | number)[] = [collection];
+
+  if (titleFilter !== undefined) {
+    if (titleFilter === "Untitled") {
+      // Filter by NULL title
+      whereClause += " AND title IS NULL";
+    } else {
+      // Filter by specific title
+      whereClause += " AND title = ?";
+      countParams.push(titleFilter);
+      selectParams.push(titleFilter);
+    }
+  }
+
+  // Get total count for this collection (with optional title filter)
+  const countStmt = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM documents
+    ${whereClause}
+  `);
+  const countResult = countStmt.get(...countParams) as { count: number };
+  const total = countResult.count;
+
   // Get paginated transcripts sorted by creation date DESC
   const stmt = database.prepare(`
     SELECT key, name, title, creation_date as creationDate, creation_date_iso as creationDateISO, size
     FROM documents
-    WHERE collection = ?
+    ${whereClause}
     ORDER BY creation_date DESC
     LIMIT ? OFFSET ?
   `);
 
-  const transcripts = stmt.all(collection, limit, offset) as CollectionTranscript[];
+  selectParams.push(limit, offset);
+  const transcripts = stmt.all(...selectParams) as CollectionTranscript[];
 
   return {
     transcripts,

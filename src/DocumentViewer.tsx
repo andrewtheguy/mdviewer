@@ -5,7 +5,7 @@ import Markdown from "react-markdown";
 import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
-import { CollectionsView, type CollectionSummary, type CollectionTranscript } from "@/components/CollectionsView";
+import { CollectionsView, type CollectionSummary, type CollectionTitle, type CollectionTranscript } from "@/components/CollectionsView";
 import { ChevronLeft, Loader2, Clock, RotateCw, Library } from "lucide-react";
 
 interface PreviewMetadata {
@@ -57,8 +57,23 @@ function shouldRedirectToCollections(): boolean {
 }
 
 // Get selected collection from URL
+// URL structure: /collections/:collection or /collections/:collection/:title
 function getCollectionFromURL(): string | null {
-  const match = window.location.pathname.match(/^\/collections\/(.+)$/);
+  const match = window.location.pathname.match(/^\/collections\/([^/]+)/);
+  if (match && match[1]) {
+    try {
+      return decodeURIComponent(match[1]);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// Get selected title from URL
+// URL structure: /collections/:collection/:title
+function getTitleFromURL(): string | null {
+  const match = window.location.pathname.match(/^\/collections\/[^/]+\/(.+)$/);
   if (match && match[1]) {
     try {
       return decodeURIComponent(match[1]);
@@ -139,9 +154,17 @@ export function DocumentViewer() {
   const [totalCollections, setTotalCollections] = useState(0);
   const [collectionsListCurrentPage, setCollectionsListCurrentPage] = useState(1);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(getCollectionFromURL);
+  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+
+  // Titles state (level 2)
+  const [collectionTitles, setCollectionTitles] = useState<CollectionTitle[]>([]);
+  const [totalCollectionTitles, setTotalCollectionTitles] = useState(0);
+  const [titlesCurrentPage, setTitlesCurrentPage] = useState(1);
+  const [selectedTitle, setSelectedTitle] = useState<string | null>(getTitleFromURL);
+
+  // Transcripts state (level 3)
   const [collectionTranscripts, setCollectionTranscripts] = useState<CollectionTranscript[]>([]);
   const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
-  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
   const [collectionCurrentPage, setCollectionCurrentPage] = useState(1);
 
   // Check reindex status on mount and poll while reindexing
@@ -434,12 +457,38 @@ export function DocumentViewer() {
     }
   }, []);
 
-  const loadCollectionTranscripts = useCallback(async (collection: string, page = 1) => {
+  const loadCollectionTitles = useCallback(async (collection: string, page = 1) => {
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
         `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}`
+      );
+      const data = await response.json();
+      if (data.error) {
+        setError(data.error);
+        setCollectionTitles([]);
+        setTotalCollectionTitles(0);
+      } else {
+        setCollectionTitles(data.titles || []);
+        setTotalCollectionTitles(data.total || 0);
+        setTitlesCurrentPage(page);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load collection titles");
+      setCollectionTitles([]);
+      setTotalCollectionTitles(0);
+    } finally {
+      setIsLoadingCollections(false);
+    }
+  }, []);
+
+  const loadCollectionTranscripts = useCallback(async (collection: string, title: string, page = 1) => {
+    setIsLoadingCollections(true);
+    try {
+      const offset = (page - 1) * PAGE_SIZE;
+      const response = await fetch(
+        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}`
       );
       const data = await response.json();
       if (data.error) {
@@ -466,6 +515,12 @@ export function DocumentViewer() {
     setIsSearchMode(false);
     setSearchQuery("");
     setSelectedCollection(null);
+    setSelectedTitle(null);
+    setCollectionTitles([]);
+    setTotalCollectionTitles(0);
+    setTitlesCurrentPage(1);
+    setCollectionTranscripts([]);
+    setCollectionTotalTranscripts(0);
     setCollectionCurrentPage(1);
     loadCollections();
   }, [loadCollections]);
@@ -473,23 +528,53 @@ export function DocumentViewer() {
   const handleSelectCollection = useCallback((collection: string) => {
     window.history.pushState({}, "", `/collections/${encodeURIComponent(collection)}`);
     setSelectedCollection(collection);
-    setCollectionCurrentPage(1);
-    loadCollectionTranscripts(collection, 1);
-  }, [loadCollectionTranscripts]);
+    setSelectedTitle(null);
+    setTitlesCurrentPage(1);
+    loadCollectionTitles(collection, 1);
+  }, [loadCollectionTitles]);
 
   const handleCollectionBack = useCallback(() => {
     window.history.pushState({}, "", "/collections");
     setSelectedCollection(null);
+    setSelectedTitle(null);
+    setCollectionTitles([]);
+    setTotalCollectionTitles(0);
+    setTitlesCurrentPage(1);
     setCollectionTranscripts([]);
     setCollectionTotalTranscripts(0);
     setCollectionCurrentPage(1);
   }, []);
 
-  const handleCollectionPageChange = useCallback((page: number) => {
+  const handleSelectTitle = useCallback((title: string) => {
     if (selectedCollection) {
-      loadCollectionTranscripts(selectedCollection, page);
+      window.history.pushState({}, "", `/collections/${encodeURIComponent(selectedCollection)}/${encodeURIComponent(title)}`);
+      setSelectedTitle(title);
+      setCollectionCurrentPage(1);
+      loadCollectionTranscripts(selectedCollection, title, 1);
     }
   }, [selectedCollection, loadCollectionTranscripts]);
+
+  const handleTitleBack = useCallback(() => {
+    if (selectedCollection) {
+      window.history.pushState({}, "", `/collections/${encodeURIComponent(selectedCollection)}`);
+      setSelectedTitle(null);
+      setCollectionTranscripts([]);
+      setCollectionTotalTranscripts(0);
+      setCollectionCurrentPage(1);
+    }
+  }, [selectedCollection]);
+
+  const handleTitlesPageChange = useCallback((page: number) => {
+    if (selectedCollection) {
+      loadCollectionTitles(selectedCollection, page);
+    }
+  }, [selectedCollection, loadCollectionTitles]);
+
+  const handleCollectionPageChange = useCallback((page: number) => {
+    if (selectedCollection && selectedTitle) {
+      loadCollectionTranscripts(selectedCollection, selectedTitle, page);
+    }
+  }, [selectedCollection, selectedTitle, loadCollectionTranscripts]);
 
   const handleCollectionsListPageChange = useCallback((page: number) => {
     loadCollections(page);
@@ -515,10 +600,18 @@ export function DocumentViewer() {
       loadRecentFiles("all", pageFromUrl);
     } else if (isCollectionsViewFromURL() || shouldRedirectToCollections()) {
       const collectionFromUrl = getCollectionFromURL();
-      if (collectionFromUrl) {
+      const titleFromUrl = getTitleFromURL();
+      if (collectionFromUrl && titleFromUrl) {
+        // URL: /collections/:collection/:title - load transcripts for this title
         setSelectedCollection(collectionFromUrl);
-        loadCollectionTranscripts(collectionFromUrl, 1);
+        setSelectedTitle(titleFromUrl);
+        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, 1);
+      } else if (collectionFromUrl) {
+        // URL: /collections/:collection - load titles for this collection
+        setSelectedCollection(collectionFromUrl);
+        loadCollectionTitles(collectionFromUrl, 1);
       } else {
+        // URL: /collections - load collections list
         loadCollections();
       }
     }
@@ -547,11 +640,27 @@ export function DocumentViewer() {
         setIsRecentMode(false);
         setIsSearchMode(false);
         const collectionFromUrl = getCollectionFromURL();
-        if (collectionFromUrl) {
+        const titleFromUrl = getTitleFromURL();
+        if (collectionFromUrl && titleFromUrl) {
+          // URL: /collections/:collection/:title
           setSelectedCollection(collectionFromUrl);
-          loadCollectionTranscripts(collectionFromUrl, 1);
+          setSelectedTitle(titleFromUrl);
+          loadCollectionTranscripts(collectionFromUrl, titleFromUrl, 1);
+        } else if (collectionFromUrl) {
+          // URL: /collections/:collection
+          setSelectedCollection(collectionFromUrl);
+          setSelectedTitle(null);
+          setCollectionTranscripts([]);
+          setCollectionTotalTranscripts(0);
+          loadCollectionTitles(collectionFromUrl, 1);
         } else {
+          // URL: /collections
           setSelectedCollection(null);
+          setSelectedTitle(null);
+          setCollectionTitles([]);
+          setTotalCollectionTitles(0);
+          setCollectionTranscripts([]);
+          setCollectionTotalTranscripts(0);
           loadCollections();
         }
       } else if (isRecent) {
@@ -579,7 +688,7 @@ export function DocumentViewer() {
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [searchQuery, handleSearch, loadRecentFiles, recentTypeFilter, loadCollections, loadCollectionTranscripts]);
+  }, [searchQuery, handleSearch, loadRecentFiles, recentTypeFilter, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
 
   // Load content when preview file changes
   useEffect(() => {
@@ -747,6 +856,13 @@ export function DocumentViewer() {
             collectionsCurrentPage={collectionsListCurrentPage}
             onCollectionsPageChange={handleCollectionsListPageChange}
             selectedCollection={selectedCollection}
+            titles={collectionTitles}
+            totalTitles={totalCollectionTitles}
+            titlesCurrentPage={titlesCurrentPage}
+            onTitlesPageChange={handleTitlesPageChange}
+            selectedTitle={selectedTitle}
+            onSelectTitle={handleSelectTitle}
+            onTitleBack={handleTitleBack}
             transcripts={collectionTranscripts}
             loading={isLoadingCollections}
             onSelectCollection={handleSelectCollection}
