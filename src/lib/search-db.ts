@@ -28,6 +28,23 @@ export function idToKey(id: string): string {
 
 const DB_PATH = process.env.SQLITE_DB_PATH || "./data/search.sqlite";
 
+// Shared documents table definition
+const DOCUMENTS_TABLE_DEFINITION = `
+  CREATE TABLE IF NOT EXISTS documents (
+    rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    key TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    extension TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    last_modified INTEGER NOT NULL,
+    last_modified_iso TEXT NOT NULL,
+    content TEXT NOT NULL,
+    content_preview TEXT NOT NULL
+  );
+`;
+
 // Shared FTS5 table definition
 const FTS_TABLE_DEFINITION = `
   CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
@@ -133,20 +150,7 @@ registerExitHandlers();
 
 function initializeSchema(database: Database.Database): void {
   database.exec(`
-    -- Main documents table
-    CREATE TABLE IF NOT EXISTS documents (
-      rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-      id TEXT NOT NULL UNIQUE,
-      key TEXT NOT NULL UNIQUE,
-      name TEXT NOT NULL,
-      extension TEXT NOT NULL,
-      path TEXT NOT NULL,
-      size INTEGER NOT NULL,
-      last_modified INTEGER NOT NULL,
-      last_modified_iso TEXT NOT NULL,
-      content TEXT NOT NULL,
-      content_preview TEXT NOT NULL
-    );
+    ${DOCUMENTS_TABLE_DEFINITION}
 
     ${FTS_TABLE_DEFINITION}
 
@@ -365,11 +369,15 @@ export function deleteAllDocuments(): void {
       DROP TRIGGER IF EXISTS documents_ad;
       DROP TRIGGER IF EXISTS documents_au;
       DROP TABLE IF EXISTS documents_fts;
-      DELETE FROM documents;
+      DROP TABLE IF EXISTS documents;
+
+      ${DOCUMENTS_TABLE_DEFINITION}
 
       ${FTS_TABLE_DEFINITION}
 
       ${TRIGGER_DEFINITIONS}
+
+      CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
     `);
   });
 
