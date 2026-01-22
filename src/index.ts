@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, browseFolder } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
 // Validate and decode base64 URL-safe encoded key
@@ -17,6 +17,28 @@ const JOB_RUNNER_URL = process.env.JOB_RUNNER_URL || "http://localhost:3001";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const isProduction = process.env.NODE_ENV === "production";
 const DEFAULT_FETCH_TIMEOUT_MS = 10000;
+
+// Parse and validate pagination parameters from query string
+function parsePagination(
+  query: { limit?: string; offset?: string },
+  options: { defaultLimit?: number; maxLimit?: number } = {}
+): { limit: number; offset: number } {
+  const { defaultLimit = 50, maxLimit = 100 } = options;
+
+  let limit = parseInt(query.limit || String(defaultLimit), 10);
+  if (isNaN(limit) || limit < 0) {
+    limit = defaultLimit;
+  } else if (limit > maxLimit) {
+    limit = maxLimit;
+  }
+
+  let offset = parseInt(query.offset || "0", 10);
+  if (isNaN(offset) || offset < 0) {
+    offset = 0;
+  }
+
+  return { limit, offset };
+}
 
 interface FetchWithTimeoutOptions extends RequestInit {
   timeoutMs?: number;
@@ -79,20 +101,7 @@ app.use(express.json());
 // Document API Routes (served from database)
 app.get("/api/documents/list", (req, res) => {
   try {
-    // Parse and validate limit
-    let limit = parseInt((req.query.limit as string) || "100", 10);
-    if (isNaN(limit) || limit < 0) {
-      limit = 100;
-    } else if (limit > 100) {
-      limit = 100;
-    }
-
-    // Parse and validate offset
-    let offset = parseInt((req.query.offset as string) || "0", 10);
-    if (isNaN(offset) || offset < 0) {
-      offset = 0;
-    }
-
+    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 100 });
     const result = listDocuments({ limit, offset });
     res.json({ objects: result.objects, total: result.total });
   } catch (error) {
@@ -106,21 +115,7 @@ app.get("/api/documents/list", (req, res) => {
 app.get("/api/documents/browse", (req, res) => {
   try {
     const requestPath = (req.query.path as string) || "";
-
-    // Parse and validate limit
-    let limit = parseInt((req.query.limit as string) || "50", 10);
-    if (isNaN(limit) || limit < 0) {
-      limit = 50;
-    } else if (limit > 100) {
-      limit = 100;
-    }
-
-    // Parse and validate offset
-    let offset = parseInt((req.query.offset as string) || "0", 10);
-    if (isNaN(offset) || offset < 0) {
-      offset = 0;
-    }
-
+    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
     const result = browseFolder({ path: requestPath, limit, offset });
     res.json(result);
   } catch (error) {
@@ -198,8 +193,16 @@ app.get("/api/documents/preview", (req, res) => {
       return;
     }
 
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.send(doc.content);
+    // Get metadata for the document
+    const metadata = getDocumentMetadata(key);
+
+    res.json({
+      content: doc.content,
+      collection: metadata?.collection ?? null,
+      title: metadata?.title ?? null,
+      creationDate: metadata?.creationDate ?? null,
+      creationDateISO: metadata?.creationDateISO ?? null,
+    });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to preview file",
@@ -210,19 +213,7 @@ app.get("/api/documents/preview", (req, res) => {
 // Recent files endpoint - returns recently updated .txt and .md files from database
 app.get("/api/documents/recent", (req, res) => {
   try {
-    // Parse and validate limit
-    let limit = parseInt((req.query.limit as string) || "50", 10);
-    if (isNaN(limit) || limit < 0) {
-      limit = 50;
-    } else if (limit > 100) {
-      limit = 100;
-    }
-
-    // Parse and validate offset
-    let offset = parseInt((req.query.offset as string) || "0", 10);
-    if (isNaN(offset) || offset < 0) {
-      offset = 0;
-    }
+    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
 
     // Validate typeFilter against allowed values
     const allowedTypes = ["all", "txt", "md"] as const;
@@ -298,13 +289,56 @@ app.get("/api/search/reindex/status", async (_req, res) => {
   }
 });
 
-app.get("/api/search/stats", async (_req, res) => {
+app.get("/api/search/stats", (_req, res) => {
   try {
-    const stats = await getIndexStats();
+    const stats = getIndexStats();
     res.json(stats);
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to get stats",
+    });
+  }
+});
+
+// Collections API Routes
+app.get("/api/collections", (req, res) => {
+  try {
+    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+    const result = getCollections({ limit, offset });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get collections",
+    });
+  }
+});
+
+app.get("/api/collections/:collection", (req, res) => {
+  try {
+    const { collection } = req.params;
+    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+    // Return grouped titles for this collection
+    const result = getCollectionTitles(collection, { limit, offset });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get collection titles",
+    });
+  }
+});
+
+app.get("/api/collections/:collection/transcripts/:title", (req, res) => {
+  try {
+    const { collection, title: titleParam } = req.params;
+    // Translate placeholder to null for querying documents with NULL title
+    const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
+    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+    // Return transcripts for this specific title within the collection
+    const result = getCollectionTranscripts(collection, { limit, offset, title });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to get collection transcripts",
     });
   }
 });

@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/Pagination";
-import { Eye, Download, FileText, ChevronLeft } from "lucide-react";
+import { Eye, Download, FileText } from "lucide-react";
 
 export interface RecentFile {
   key: string;
@@ -9,6 +9,10 @@ export interface RecentFile {
   size: number;
   lastModified: number;
   lastModifiedISO: string;
+  collection: string | null;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
 }
 
 export type FileTypeFilter = "all" | "txt" | "md";
@@ -21,8 +25,6 @@ interface RecentFilesProps {
   onTypeFilterChange: (filter: FileTypeFilter) => void;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
-  onNavigateToFolder: (path: string) => void;
-  onClose: () => void;
   currentPage: number;
   pageSize: number;
   onPageChange: (page: number) => void;
@@ -62,8 +64,6 @@ export function RecentFiles({
   onTypeFilterChange,
   onPreview,
   onDownload,
-  onNavigateToFolder,
-  onClose,
   currentPage,
   pageSize,
   onPageChange,
@@ -81,13 +81,8 @@ export function RecentFiles({
   if (files.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-muted-foreground">
-            No recent .txt or .md files found
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            Back to browse
-          </Button>
+        <div className="text-sm text-muted-foreground">
+          No recent .txt or .md files found
         </div>
       </div>
     );
@@ -95,29 +90,23 @@ export function RecentFiles({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 p-3 rounded-lg border">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-          <div className="text-sm font-medium">
-            Recent Files <span className="text-muted-foreground font-normal">({totalFiles})</span>
-          </div>
-          <div className="h-px sm:h-4 w-full sm:w-px bg-border hidden sm:block" />
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Filter:</span>
-            <select
-              value={typeFilter}
-              onChange={(e) => onTypeFilterChange(e.target.value as FileTypeFilter)}
-              className="text-sm border rounded px-2 py-1 bg-background h-8"
-            >
-              <option value="all">All Types</option>
-              <option value="txt">.txt</option>
-              <option value="md">.md</option>
-            </select>
-          </div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-muted/30 p-3 rounded-lg border">
+        <div className="text-sm font-medium">
+          Recent Files <span className="text-muted-foreground font-normal">({totalFiles})</span>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose} className="w-full sm:w-auto gap-2">
-          <ChevronLeft className="size-4" />
-          Back to Browse
-        </Button>
+        <div className="h-px sm:h-4 w-full sm:w-px bg-border hidden sm:block" />
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">Filter:</span>
+          <select
+            value={typeFilter}
+            onChange={(e) => onTypeFilterChange(e.target.value as FileTypeFilter)}
+            className="text-sm border rounded px-2 py-1 bg-background h-8"
+          >
+            <option value="all">All Types</option>
+            <option value="txt">.txt</option>
+            <option value="md">.md</option>
+          </select>
+        </div>
       </div>
 
       <div className="border rounded-lg overflow-x-auto">
@@ -125,18 +114,13 @@ export function RecentFiles({
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left p-3 font-medium">File</th>
-              <th className="text-left p-3 font-medium hidden sm:table-cell">Last Updated</th>
+              <th className="text-left p-3 font-medium hidden sm:table-cell">Created</th>
               <th className="text-right p-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {files.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="p-6 text-center text-muted-foreground">
-                  No {typeFilter === "all" ? "" : `.${typeFilter} `}files found
-                </td>
-              </tr>
-            ) : files.map((file) => {
+            {files.map((file) => {
+              const displayDate = file.creationDate ?? file.lastModified;
               return (
                 <tr
                   key={file.key}
@@ -147,34 +131,35 @@ export function RecentFiles({
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 shrink-0" />
-                        <span className="break-all">{file.name}</span>
+                        <span className="break-all font-medium">
+                          {file.name}
+                        </span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap">
                           ({formatBytes(file.size)})
                         </span>
                       </div>
-                      {file.path && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onNavigateToFolder(file.path);
-                          }}
-                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left break-all"
-                        >
-                          /{file.path}
-                        </button>
+                      {file.title && (
+                        <span className="text-xs text-muted-foreground break-all">
+                          {file.title}
+                        </span>
+                      )}
+                      {file.collection && (
+                        <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+                          {file.collection}
+                        </span>
                       )}
                       <div className="sm:hidden flex flex-col gap-0.5 mt-1 text-muted-foreground">
                         <span className="text-xs font-medium text-foreground">
-                          Updated {getRelativeTime(file.lastModified)}
+                          {getRelativeTime(displayDate)}
                         </span>
                       </div>
                     </div>
                   </td>
                   <td className="p-3 hidden sm:table-cell">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-sm">{getRelativeTime(file.lastModified)}</span>
+                      <span className="text-sm">{getRelativeTime(displayDate)}</span>
                       <span className="text-xs text-muted-foreground">
-                        {formatDate(file.lastModified)}
+                        {formatDate(displayDate)}
                       </span>
                     </div>
                   </td>

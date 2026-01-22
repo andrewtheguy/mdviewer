@@ -12,6 +12,10 @@ export interface SearchHit {
   lastModified: number;
   lastModifiedISO: string;
   contentPreview: string;
+  collection: string | null;
+  title: string | null;
+  creationDate: number | null;
+  creationDateISO: string | null;
   _formatted?: {
     name?: string;
     content?: string;
@@ -24,7 +28,6 @@ interface SearchResultsProps {
   totalHits: number;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
-  onNavigateToFolder: (path: string) => void;
   currentPage: number;
   pageSize: number;
   loading: boolean;
@@ -54,7 +57,6 @@ export function SearchResults({
   totalHits,
   onPreview,
   onDownload,
-  onNavigateToFolder,
   currentPage,
   pageSize,
   loading,
@@ -96,21 +98,25 @@ export function SearchResults({
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 shrink-0" />
                         {hit._formatted?.name ? (
-                          <HighlightedText html={hit._formatted.name} />
+                          <span className="font-medium">
+                            <HighlightedText html={hit._formatted.name} />
+                          </span>
                         ) : (
-                          <span className="break-all">{hit.name}</span>
+                          <span className="break-all font-medium">{hit.title || hit.name}</span>
                         )}
                         <span className="text-muted-foreground text-xs whitespace-nowrap">
                           ({formatBytes(hit.size)})
                         </span>
                       </div>
+                      {hit.collection && (
+                        <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+                          {hit.collection}
+                        </span>
+                      )}
                       {hit.path && (
-                        <button
-                          onClick={() => onNavigateToFolder(hit.path)}
-                          className="text-xs text-muted-foreground hover:text-primary hover:underline text-left break-all"
-                        >
+                        <span className="text-xs text-muted-foreground break-all">
                           /{hit.path}
-                        </button>
+                        </span>
                       )}
                       <div className="sm:hidden mt-1 text-xs text-muted-foreground">
                         {hit._formatted?.content ? (
