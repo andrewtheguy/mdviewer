@@ -51,7 +51,7 @@ export function DocumentViewer() {
     loadCollectionTranscripts: typeof collections.loadCollectionTranscripts;
     loadCollectionTitles: typeof collections.loadCollectionTitles;
     loadCollections: typeof collections.loadCollections;
-  }>(null!);
+  } | undefined>(undefined);
 
   // Synchronously update refs after render (useLayoutEffect runs before browser paint)
   useLayoutEffect(() => {
@@ -228,12 +228,13 @@ export function DocumentViewer() {
   // Used by popstate handler to sync state with browser navigation
   // Uses refs to avoid recreating callback on every hook state change
   const restoreStateFromURL = useCallback(() => {
+    const methods = restoreStateMethodsRef.current;
+    if (!methods) return;
+
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
       window.history.replaceState({}, "", "/collections");
     }
-
-    const methods = restoreStateMethodsRef.current;
 
     // Restore preview state
     methods.restorePreviewFromURL();
@@ -263,6 +264,7 @@ export function DocumentViewer() {
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   useEffect(() => {
     const methods = restoreStateMethodsRef.current;
+    if (!methods) return;
 
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
