@@ -245,19 +245,6 @@ export function DocumentViewer() {
     }
   };
 
-  const closePreview = useCallback(() => {
-    // Navigate to the return URL from query param, or fallback to /collections
-    const returnUrl = getReturnUrlFromURL();
-    window.history.pushState({}, "", returnUrl);
-    setPreviewFile(null);
-    setPreviewContent("");
-    setPreviewMetadata(null);
-    setPreviewLoading(false);
-
-    // Trigger state updates based on return URL
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  }, []);
-
   const handlePreview = (key: string) => {
     const encoded = encodeKey(key);
     const currentUrl = getCurrentPageUrl();
@@ -566,19 +553,126 @@ export function DocumentViewer() {
 
   const handleTitlesPageChange = useCallback((page: number) => {
     if (selectedCollection) {
+      const url = new URL(window.location.href);
+      if (page === 1) {
+        url.searchParams.delete("page");
+      } else {
+        url.searchParams.set("page", String(page));
+      }
+      window.history.pushState({}, "", `${url.pathname}${url.search}`);
       loadCollectionTitles(selectedCollection, page);
     }
   }, [selectedCollection, loadCollectionTitles]);
 
   const handleCollectionPageChange = useCallback((page: number) => {
     if (selectedCollection && selectedTitle) {
+      const url = new URL(window.location.href);
+      if (page === 1) {
+        url.searchParams.delete("page");
+      } else {
+        url.searchParams.set("page", String(page));
+      }
+      window.history.pushState({}, "", `${url.pathname}${url.search}`);
       loadCollectionTranscripts(selectedCollection, selectedTitle, page);
     }
   }, [selectedCollection, selectedTitle, loadCollectionTranscripts]);
 
   const handleCollectionsListPageChange = useCallback((page: number) => {
+    const url = new URL(window.location.href);
+    if (page === 1) {
+      url.searchParams.delete("page");
+    } else {
+      url.searchParams.set("page", String(page));
+    }
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
     loadCollections(page);
   }, [loadCollections]);
+
+  // Shared function to restore state from current URL
+  // Used by both closePreview and popstate handler
+  const restoreStateFromURL = useCallback(() => {
+    // Redirect root to /collections
+    if (shouldRedirectToCollections()) {
+      window.history.replaceState({}, "", "/collections");
+    }
+
+    const previewKey = getPreviewKeyFromURL();
+    const urlQuery = getSearchQueryFromURL();
+    const isRecent = isRecentViewFromURL();
+    const isCollections = isCollectionsViewFromURL() || shouldRedirectToCollections();
+
+    if (previewKey) {
+      setPreviewFile(previewKey);
+      setIsRecentMode(false);
+    } else if (isCollections) {
+      setPreviewFile(null);
+      setPreviewContent("");
+      setPreviewMetadata(null);
+      setIsRecentMode(false);
+      setIsSearchMode(false);
+      const collectionFromUrl = getCollectionFromURL();
+      const titleFromUrl = getTitleFromURL();
+      const pageFromUrl = getPageFromURL();
+      if (collectionFromUrl && titleFromUrl) {
+        // URL: /collections/:collection/:title
+        setSelectedCollection(collectionFromUrl);
+        setSelectedTitle(titleFromUrl);
+        setCollectionCurrentPage(pageFromUrl);
+        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
+      } else if (collectionFromUrl) {
+        // URL: /collections/:collection
+        setSelectedCollection(collectionFromUrl);
+        setSelectedTitle(null);
+        setCollectionTranscripts([]);
+        setCollectionTotalTranscripts(0);
+        setTitlesCurrentPage(pageFromUrl);
+        loadCollectionTitles(collectionFromUrl, pageFromUrl);
+      } else {
+        // URL: /collections
+        setSelectedCollection(null);
+        setSelectedTitle(null);
+        setCollectionTitles([]);
+        setTotalCollectionTitles(0);
+        setCollectionTranscripts([]);
+        setCollectionTotalTranscripts(0);
+        setCollectionsListCurrentPage(pageFromUrl);
+        loadCollections(pageFromUrl);
+      }
+    } else if (isRecent) {
+      setPreviewFile(null);
+      setPreviewContent("");
+      setPreviewMetadata(null);
+      setIsRecentMode(true);
+      setIsSearchMode(false);
+      const pageFromUrl = getPageFromURL();
+      setRecentCurrentPage(pageFromUrl);
+      loadRecentFiles(recentTypeFilter, pageFromUrl);
+    }
+
+    // Handle search query changes
+    if (urlQuery) {
+      handleSearch(urlQuery, false);
+    } else if (!isRecent && !isCollections && !previewKey) {
+      setSearchQuery("");
+      setSearchResults([]);
+      setSearchTotalHits(0);
+      setSearchCurrentPage(1);
+      setIsSearchMode(false);
+    }
+  }, [handleSearch, loadRecentFiles, recentTypeFilter, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
+
+  const closePreview = useCallback(() => {
+    // Navigate to the return URL from query param, or fallback to /collections
+    const returnUrl = getReturnUrlFromURL();
+    window.history.pushState({}, "", returnUrl);
+    setPreviewFile(null);
+    setPreviewContent("");
+    setPreviewMetadata(null);
+    setPreviewLoading(false);
+
+    // Restore state based on the return URL
+    restoreStateFromURL();
+  }, [restoreStateFromURL]);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
@@ -621,74 +715,11 @@ export function DocumentViewer() {
   // Handle browser back/forward
   useEffect(() => {
     const handlePopState = () => {
-      // Redirect root to /collections
-      if (shouldRedirectToCollections()) {
-        window.history.replaceState({}, "", "/collections");
-      }
-
-      const previewKey = getPreviewKeyFromURL();
-      const urlQuery = getSearchQueryFromURL();
-      const isRecent = isRecentViewFromURL();
-      const isCollections = isCollectionsViewFromURL() || shouldRedirectToCollections();
-
-      if (previewKey) {
-        setPreviewFile(previewKey);
-        setIsRecentMode(false);
-      } else if (isCollections) {
-        setPreviewFile(null);
-        setPreviewContent("");
-        setIsRecentMode(false);
-        setIsSearchMode(false);
-        const collectionFromUrl = getCollectionFromURL();
-        const titleFromUrl = getTitleFromURL();
-        if (collectionFromUrl && titleFromUrl) {
-          // URL: /collections/:collection/:title
-          setSelectedCollection(collectionFromUrl);
-          setSelectedTitle(titleFromUrl);
-          loadCollectionTranscripts(collectionFromUrl, titleFromUrl, 1);
-        } else if (collectionFromUrl) {
-          // URL: /collections/:collection
-          setSelectedCollection(collectionFromUrl);
-          setSelectedTitle(null);
-          setCollectionTranscripts([]);
-          setCollectionTotalTranscripts(0);
-          loadCollectionTitles(collectionFromUrl, 1);
-        } else {
-          // URL: /collections
-          setSelectedCollection(null);
-          setSelectedTitle(null);
-          setCollectionTitles([]);
-          setTotalCollectionTitles(0);
-          setCollectionTranscripts([]);
-          setCollectionTotalTranscripts(0);
-          loadCollections();
-        }
-      } else if (isRecent) {
-        setPreviewFile(null);
-        setPreviewContent("");
-        setIsRecentMode(true);
-        setIsSearchMode(false);
-        const pageFromUrl = getPageFromURL();
-        setRecentCurrentPage(pageFromUrl);
-        loadRecentFiles(recentTypeFilter, pageFromUrl);
-      }
-
-      // Handle search query changes from back/forward
-      if (urlQuery !== searchQuery) {
-        if (urlQuery) {
-          handleSearch(urlQuery, false);
-        } else if (!isRecent && !isCollections) {
-          setSearchQuery("");
-          setSearchResults([]);
-          setSearchTotalHits(0);
-          setSearchCurrentPage(1);
-          setIsSearchMode(false);
-        }
-      }
+      restoreStateFromURL();
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [searchQuery, handleSearch, loadRecentFiles, recentTypeFilter, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
+  }, [restoreStateFromURL]);
 
   // Load content when preview file changes
   useEffect(() => {
