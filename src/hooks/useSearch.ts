@@ -79,6 +79,7 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
         onError(errorMessage);
         setSearchResults([]);
         setSearchTotalHits(0);
+        setSearchCurrentPage(1);
         setIsSearching(false);
         return;
       }

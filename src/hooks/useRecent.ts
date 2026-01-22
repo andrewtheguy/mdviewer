@@ -70,18 +70,19 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
       if (!response.ok) {
         let errorMessage = `Failed to load recent files (${response.status} ${response.statusText})`;
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch {
-          // If JSON parsing fails, try to get the response body as text
-          try {
-            const errorText = await response.text();
-            if (errorText) {
+          // Read body once as text, then try to parse as JSON
+          const errorText = await response.text();
+          if (errorText) {
+            try {
+              const errorData = JSON.parse(errorText);
+              errorMessage = errorData.error || errorText;
+            } catch {
+              // Not valid JSON, use the raw text
               errorMessage = errorText;
             }
-          } catch {
-            // Ignore text parsing errors
           }
+        } catch {
+          // Ignore body reading errors
         }
         onError(errorMessage);
         setRecentFiles([]);
