@@ -21,14 +21,13 @@ RUN npm run build
 FROM node:24-alpine AS runner
 WORKDIR /app
 
-# Install build dependencies for better-sqlite3 native module
-RUN apk add --no-cache python3 make g++
-
 # Copy package files
 COPY package.json package-lock.json ./
 
-# Install production dependencies only
-RUN npm ci --omit=dev
+# Install build dependencies, compile native modules, then remove build tools
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && npm ci --omit=dev \
+    && apk del .build-deps
 
 # Copy built frontend from builder
 COPY --from=builder /app/dist ./dist
