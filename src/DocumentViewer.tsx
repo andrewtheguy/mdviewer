@@ -826,9 +826,10 @@ export function DocumentViewer() {
                   {previewMetadata?.collection && (
                     <span className="text-xs text-muted-foreground">{previewMetadata.collection}</span>
                   )}
-                  <h2 className="text-sm font-medium truncate">
-                    {previewMetadata?.title || getFileName(previewFile)}
-                  </h2>
+                  {previewMetadata?.title && (
+                    <h2 className="text-sm font-medium truncate">{previewMetadata.title}</h2>
+                  )}
+                  <span className="text-xs text-muted-foreground truncate">{getFileName(previewFile)}</span>
                   {previewMetadata?.creationDateISO && (
                     <span className="text-xs text-muted-foreground">
                       {formatPreviewDate(previewMetadata.creationDateISO)}
