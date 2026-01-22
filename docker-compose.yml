@@ -22,7 +22,7 @@ services:
 
   job-runner:
     build: .
-    command: ["bun", "run", "src/job-runner.ts"]
+    command: ["npm", "run", "job-runner"]
     ports:
       - "3001:3001"
     environment:
