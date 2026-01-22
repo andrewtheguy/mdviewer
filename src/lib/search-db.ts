@@ -399,3 +399,96 @@ export function getStats(): IndexStats {
     isIndexing: false, // SQLite is synchronous, no background indexing
   };
 }
+
+// List all documents (for /api/s3/list)
+export function listDocuments(): Array<{ key: string; size: number; lastModified: string | null }> {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    SELECT key, size, last_modified_iso as lastModified
+    FROM documents
+    ORDER BY last_modified DESC
+  `);
+  return stmt.all() as Array<{ key: string; size: number; lastModified: string | null }>;
+}
+
+export interface RecentDocumentsOptions {
+  limit?: number;
+  offset?: number;
+  type?: "all" | "txt" | "md";
+}
+
+export interface RecentDocument {
+  key: string;
+  name: string;
+  path: string;
+  size: number;
+  lastModified: number | null;
+  lastModifiedISO: string | null;
+}
+
+// Get recent documents with pagination/filtering (for /api/s3/recent)
+export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
+  files: RecentDocument[];
+  totalFiles: number;
+} {
+  const database = getDatabase();
+  const limit = options.limit ?? 50;
+  const offset = options.offset ?? 0;
+  const typeFilter = options.type ?? "all";
+
+  // Build WHERE clause based on type filter
+  let whereClause = "";
+  if (typeFilter === "txt") {
+    whereClause = "WHERE extension = 'txt'";
+  } else if (typeFilter === "md") {
+    whereClause = "WHERE extension = 'md'";
+  }
+
+  // Get total count
+  const countStmt = database.prepare(`SELECT COUNT(*) as count FROM documents ${whereClause}`);
+  const countResult = countStmt.get() as { count: number };
+  const totalFiles = countResult.count;
+
+  // Get paginated results sorted by most recent first
+  const stmt = database.prepare(`
+    SELECT key, name, path, size, last_modified as lastModified, last_modified_iso as lastModifiedISO
+    FROM documents
+    ${whereClause}
+    ORDER BY last_modified DESC
+    LIMIT ? OFFSET ?
+  `);
+
+  const rows = stmt.all(limit, offset) as Array<{
+    key: string;
+    name: string;
+    path: string;
+    size: number;
+    lastModified: number | null;
+    lastModifiedISO: string | null;
+  }>;
+
+  return {
+    files: rows,
+    totalFiles,
+  };
+}
+
+export interface DocumentRecord {
+  key: string;
+  name: string;
+  extension: string;
+  content: string;
+  size: number;
+}
+
+// Get single document by key (for /api/s3/download and /api/s3/preview)
+export function getDocument(key: string): DocumentRecord | null {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    SELECT key, name, extension, content, size
+    FROM documents
+    WHERE key = ?
+  `);
+  const result = stmt.get(key) as DocumentRecord | undefined;
+  return result ?? null;
+}

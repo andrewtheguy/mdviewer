@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
-import { s3 } from "./lib/s3";
-import { search } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
 // Decode base64 URL-safe encoded key
@@ -72,15 +71,10 @@ const app = express();
 
 app.use(express.json());
 
-// S3 API Routes
-app.get("/api/s3/list", async (_req, res) => {
+// S3 API Routes (now served from database)
+app.get("/api/s3/list", (_req, res) => {
   try {
-    const result = await s3.list();
-    const objects = (result.contents || []).map((obj) => ({
-      key: obj.key,
-      size: obj.size || 0,
-      lastModified: obj.lastModified ?? null,
-    }));
+    const objects = listDocuments();
     res.json({ objects });
   } catch (error) {
     res.status(500).json({
@@ -88,7 +82,7 @@ app.get("/api/s3/list", async (_req, res) => {
     });
   }
 });
-app.get("/api/s3/download", async (req, res) => {
+app.get("/api/s3/download", (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;
     if (!encodedKey) {
@@ -96,27 +90,26 @@ app.get("/api/s3/download", async (req, res) => {
       return;
     }
     const key = decodeKey(encodedKey);
-    const s3File = s3.file(key);
-    const exists = await s3File.exists();
+    const doc = getDocument(key);
 
-    if (!exists) {
+    if (!doc) {
       res.status(404).json({ error: "File not found" });
       return;
     }
 
-    const data = await s3File.arrayBuffer();
-    const contentType = s3File.type || "application/octet-stream";
+    // Determine content type based on extension
+    const contentType = doc.extension === "md" ? "text/markdown" : "text/plain";
 
     // Extract basename and encode for Content-Disposition header (RFC 5987)
     const basename = key.split("/").pop() || key;
     const encodedFilename = encodeURIComponent(basename).replace(/'/g, "%27");
 
-    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Type", `${contentType}; charset=utf-8`);
     res.setHeader(
       "Content-Disposition",
       `attachment; filename*=UTF-8''${encodedFilename}`
     );
-    res.send(Buffer.from(data));
+    res.send(doc.content);
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to download file",
@@ -124,7 +117,7 @@ app.get("/api/s3/download", async (req, res) => {
   }
 });
 
-app.get("/api/s3/preview", async (req, res) => {
+app.get("/api/s3/preview", (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;
     if (!encodedKey) {
@@ -142,17 +135,15 @@ app.get("/api/s3/preview", async (req, res) => {
       return;
     }
 
-    const s3File = s3.file(key);
-    const exists = await s3File.exists();
+    const doc = getDocument(key);
 
-    if (!exists) {
+    if (!doc) {
       res.status(404).json({ error: "File not found" });
       return;
     }
 
-    const content = await s3File.text();
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.send(content);
+    res.send(doc.content);
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to preview file",
@@ -160,49 +151,22 @@ app.get("/api/s3/preview", async (req, res) => {
   }
 });
 
-// Recent files endpoint - returns recently updated .txt and .md files directly from S3
-app.get("/api/s3/recent", async (req, res) => {
+// Recent files endpoint - returns recently updated .txt and .md files from database
+app.get("/api/s3/recent", (req, res) => {
   try {
     const limit = parseInt((req.query.limit as string) || "50", 10);
     const offset = parseInt((req.query.offset as string) || "0", 10);
     const typeFilter = (req.query.type as string) || "all"; // "all", "txt", or "md"
 
-    // Fetch all files from S3
-    const result = await s3.list();
-    const allObjects = result.contents || [];
-
-    // Filter for .txt and .md files based on type parameter
-    const textFiles = allObjects.filter((obj) => {
-      if (!obj.key) return false;
-      const ext = obj.key.toLowerCase().split(".").pop();
-      if (typeFilter === "txt") return ext === "txt";
-      if (typeFilter === "md") return ext === "md";
-      return ext === "txt" || ext === "md"; // "all"
+    const result = getRecentDocuments({
+      limit,
+      offset,
+      type: typeFilter as "all" | "txt" | "md",
     });
-
-    // Sort by lastModified descending (most recent first)
-    textFiles.sort((a, b) => {
-      const dateA = a.lastModified ? new Date(a.lastModified).getTime() : 0;
-      const dateB = b.lastModified ? new Date(b.lastModified).getTime() : 0;
-      return dateB - dateA;
-    });
-
-    // Apply pagination
-    const paginatedFiles = textFiles.slice(offset, offset + limit);
-
-    // Map to response format
-    const files = paginatedFiles.map((obj) => ({
-      key: obj.key,
-      name: obj.key?.split("/").pop() || obj.key,
-      path: obj.key?.split("/").slice(0, -1).join("/") || "",
-      size: obj.size || 0,
-      lastModified: obj.lastModified ? new Date(obj.lastModified).getTime() : null,
-      lastModifiedISO: obj.lastModified ?? null,
-    }));
 
     res.json({
-      files,
-      totalFiles: textFiles.length,
+      files: result.files,
+      totalFiles: result.totalFiles,
     });
   } catch (error) {
     res.status(500).json({
