@@ -159,14 +159,8 @@ function registerExitHandlers(): void {
 registerExitHandlers();
 
 function initializeSchema(database: Database.Database): void {
-  // Always drop and recreate tables (no backwards compatibility needed)
+  // Create tables and triggers only if they don't exist (preserves data across restarts)
   database.exec(`
-    DROP TRIGGER IF EXISTS documents_ai;
-    DROP TRIGGER IF EXISTS documents_ad;
-    DROP TRIGGER IF EXISTS documents_au;
-    DROP TABLE IF EXISTS documents_fts;
-    DROP TABLE IF EXISTS documents;
-
     ${DOCUMENTS_TABLE_DEFINITION}
 
     ${FTS_TABLE_DEFINITION}
