@@ -84,15 +84,19 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
+// Check if an error indicates S3 "not found" (NoSuchKey)
+function isS3NotFoundError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const err = error as Record<string, unknown>;
+  // AWS SDK v3 uses name or code for error identification
+  return err.name === "NoSuchKey" || err.code === "NoSuchKey";
+}
+
 // Fetch and parse metadata.json from a folder
 async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata | null> {
   const metadataKey = folderPath ? `${folderPath}/metadata.json` : "metadata.json";
   try {
-    const file = s3.file(metadataKey);
-    const exists = await withTimeout(file.exists(), S3_FETCH_TIMEOUT_MS, `check exists ${metadataKey}`);
-    if (!exists) return null;
-
-    const content = await withTimeout(file.text(), S3_FETCH_TIMEOUT_MS, `fetch ${metadataKey}`);
+    const content = await withTimeout(s3.file(metadataKey).text(), S3_FETCH_TIMEOUT_MS, `fetch ${metadataKey}`);
     const metadata = JSON.parse(content) as Record<string, unknown>;
 
     // Validate type
@@ -115,10 +119,12 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
       title: metadata.title as string,
     };
   } catch (error) {
-    // Only log if it's not a "not found" type error
-    if (error instanceof Error && !error.message.includes("NoSuchKey")) {
-      console.warn(`[JobRunner] Failed to fetch metadata at ${metadataKey}:`, error);
+    // Silently return null for "not found" errors
+    if (isS3NotFoundError(error)) {
+      return null;
     }
+    // Log other errors
+    console.warn(`[JobRunner] Failed to fetch metadata at ${metadataKey}:`, error);
     return null;
   }
 }
