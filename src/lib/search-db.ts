@@ -859,7 +859,7 @@ const reindexStatus: ReindexStatus = {
 };
 
 export function getReindexStatus(): ReindexStatus {
-  return { ...reindexStatus };
+  return structuredClone(reindexStatus);
 }
 
 // Metadata interface for folder metadata.json files
@@ -972,12 +972,12 @@ export async function runReindex(): Promise<void> {
     const objects = listResult.contents || [];
 
     result.total = objects.length;
-    reindexStatus.progress.total = objects.length;
 
     const indexableObjects = objects.filter(
       (obj) => obj.key && isIndexable(obj.key)
     );
     result.skipped = objects.length - indexableObjects.length;
+    reindexStatus.progress.total = indexableObjects.length;
     console.log(
       `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} indexable`
     );
