@@ -694,7 +694,7 @@ export function DocumentViewer() {
                 <button
                   type="button"
                   onClick={() => navigateToFolder(pathToHere)}
-                  className="hover:text-primary hover:underline max-w-[200px] truncate"
+                  className="hover:text-primary hover:underline max-w-[200px] truncate sm:max-w-none"
                   title={segment}
                 >
                   {segment}
