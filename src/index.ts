@@ -12,6 +12,53 @@ function decodeKey(encoded: string): string {
 const JOB_RUNNER_URL = process.env.JOB_RUNNER_URL || "http://localhost:3001";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const isProduction = process.env.NODE_ENV === "production";
+const DEFAULT_FETCH_TIMEOUT_MS = 10000;
+
+interface FetchWithTimeoutOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+type FetchResult<T> =
+  | { ok: true; data: T; status: number }
+  | { ok: false; error: string; status: number };
+
+async function fetchWithTimeout<T = unknown>(
+  url: string,
+  options: FetchWithTimeoutOptions = {}
+): Promise<FetchResult<T>> {
+  const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      return {
+        ok: false,
+        error: text || response.statusText,
+        status: response.status,
+      };
+    }
+
+    const data = await response.json() as T;
+    return { ok: true, data, status: response.status };
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error && error.name === "AbortError") {
+      return { ok: false, error: "Request timed out", status: 504 };
+    }
+
+    return { ok: false, error: "Service unavailable", status: 502 };
+  }
+}
 
 const app = express();
 
@@ -202,24 +249,24 @@ app.get("/api/search", (req, res) => {
 });
 
 app.post("/api/search/reindex", async (_req, res) => {
-  try {
-    const response = await fetch(`${JOB_RUNNER_URL}/reindex`, {
-      method: "POST",
-    });
-    const data = await response.json();
-    res.status(response.status).json(data);
-  } catch {
-    res.status(503).json({ error: "Job runner unavailable" });
+  const result = await fetchWithTimeout(`${JOB_RUNNER_URL}/reindex`, {
+    method: "POST",
+  });
+
+  if (result.ok) {
+    res.json(result.data);
+  } else {
+    res.status(result.status).json({ error: result.error });
   }
 });
 
 app.get("/api/search/reindex/status", async (_req, res) => {
-  try {
-    const response = await fetch(`${JOB_RUNNER_URL}/status`);
-    const data = await response.json();
-    res.json(data);
-  } catch {
-    res.status(503).json({ running: false, error: "Job runner unavailable" });
+  const result = await fetchWithTimeout<{ running: boolean }>(`${JOB_RUNNER_URL}/status`);
+
+  if (result.ok) {
+    res.json(result.data);
+  } else {
+    res.status(result.status).json({ running: false, error: result.error });
   }
 });
 
