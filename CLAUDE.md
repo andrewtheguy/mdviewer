@@ -1,5 +1,7 @@
 no backwards compatibility needed
 
+delete all unused public methods since the library is internal only
+
 Default to using Node.js 24.
 
 run npm run lint and then npx tsc -b to check and fix any issues 

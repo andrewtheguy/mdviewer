@@ -26,11 +26,6 @@ export function keyToId(key: string): string {
   return Buffer.from(key, "utf-8").toString("base64url");
 }
 
-// Decode ID back to S3 key
-export function idToKey(id: string): string {
-  return Buffer.from(id, "base64url").toString("utf-8");
-}
-
 const DB_PATH = process.env.SQLITE_DB_PATH || "./data/search.sqlite";
 
 // Shared documents table definition
@@ -87,7 +82,7 @@ const TRIGGER_DEFINITIONS = `
 
 let db: Database.Database | null = null;
 
-export function getDatabase(): Database.Database {
+function getDatabase(): Database.Database {
   if (db) {
     return db;
   }
@@ -108,7 +103,7 @@ export function getDatabase(): Database.Database {
   return db;
 }
 
-export function closeDatabase(): void {
+function closeDatabase(): void {
   if (db) {
     db.close();
     db = null;
@@ -324,36 +319,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
   };
 }
 
-export function addDocument(doc: S3FileDocument): void {
-  const database = getDatabase();
-
-  const stmt = database.prepare(`
-    INSERT OR REPLACE INTO documents
-      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview,
-       collection, title, creation_date, creation_date_iso, has_metadata)
-    VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  stmt.run(
-    doc.id,
-    doc.key,
-    doc.name,
-    doc.extension,
-    doc.path,
-    doc.size,
-    doc.lastModified,
-    doc.lastModifiedISO,
-    doc.content,
-    doc.contentPreview,
-    doc.collection,
-    doc.title,
-    doc.creationDate,
-    doc.creationDateISO,
-    doc.hasMetadata ? 1 : 0
-  );
-}
-
 export function addDocuments(docs: S3FileDocument[]): void {
   const database = getDatabase();
 
@@ -388,12 +353,6 @@ export function addDocuments(docs: S3FileDocument[]): void {
   });
 
   insertMany(docs);
-}
-
-export function deleteDocument(key: string): void {
-  const database = getDatabase();
-  const stmt = database.prepare("DELETE FROM documents WHERE key = ?");
-  stmt.run(key);
 }
 
 export function deleteAllDocuments(): void {
