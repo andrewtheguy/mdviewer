@@ -26,7 +26,6 @@ interface CollectionsViewProps {
   onBack: () => void;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
-  onClose: () => void;
   currentPage: number;
   pageSize: number;
   totalTranscripts: number;
@@ -77,7 +76,6 @@ export function CollectionsView({
   onBack,
   onPreview,
   onDownload,
-  onClose,
   currentPage,
   pageSize,
   totalTranscripts,
@@ -98,13 +96,8 @@ export function CollectionsView({
     if (collections.length === 0) {
       return (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">
-              No collections found. Collections are created from metadata.json files.
-            </div>
-            <Button variant="ghost" size="sm" onClick={onClose}>
-              Back to browse
-            </Button>
+          <div className="text-sm text-muted-foreground">
+            No collections found. Collections are created from metadata.json files.
           </div>
         </div>
       );
@@ -112,14 +105,10 @@ export function CollectionsView({
 
     return (
       <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 p-3 rounded-lg border">
+        <div className="bg-muted/30 p-3 rounded-lg border">
           <div className="text-sm font-medium">
             Collections <span className="text-muted-foreground font-normal">({collections.length})</span>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="w-full sm:w-auto gap-2">
-            <ChevronLeft className="size-4" />
-            Back to Browse
-          </Button>
         </div>
 
         <div className="border rounded-lg overflow-x-auto">
@@ -164,22 +153,16 @@ export function CollectionsView({
   // Show transcripts in the selected collection
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/30 p-3 rounded-lg border">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
-            <ChevronLeft className="size-4" />
-            Back
-          </Button>
-          <div className="h-4 w-px bg-border" />
-          <div className="text-sm">
-            <span className="font-medium">{selectedCollection}</span>
-            <span className="text-muted-foreground ml-2">({totalTranscripts} transcripts)</span>
-          </div>
-        </div>
-        <Button variant="ghost" size="sm" onClick={onClose} className="w-full sm:w-auto gap-2">
+      <div className="flex items-center gap-3 bg-muted/30 p-3 rounded-lg border">
+        <Button variant="ghost" size="sm" onClick={onBack} className="gap-2">
           <ChevronLeft className="size-4" />
-          Exit Collections
+          Back
         </Button>
+        <div className="h-4 w-px bg-border" />
+        <div className="text-sm">
+          <span className="font-medium">{selectedCollection}</span>
+          <span className="text-muted-foreground ml-2">({totalTranscripts} transcripts)</span>
+        </div>
       </div>
 
       {transcripts.length === 0 ? (

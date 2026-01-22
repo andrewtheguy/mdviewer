@@ -49,20 +49,11 @@ export function Pagination({
   const endItem = Math.min(currentPage * pageSize, totalItems);
 
   const isFirstPage = currentPage === 1;
-  const isLastPage = currentPage === totalPages;
+  const isLastPage = currentPage === totalPages || totalPages === 0;
 
-  // For single page, just show count without navigation
-  if (totalPages <= 1) {
-    return (
-      <div className="flex items-center justify-between py-4">
-        <div className="text-sm text-muted-foreground">
-          Showing {startItem}-{endItem} of {totalItems}
-        </div>
-      </div>
-    );
-  }
-
-  const pageNumbers = getPageNumbers(currentPage, totalPages);
+  // Always show pagination with navigation, even for single page
+  const effectiveTotalPages = Math.max(1, totalPages);
+  const pageNumbers = getPageNumbers(currentPage, effectiveTotalPages);
 
   return (
     <div className="flex items-center justify-between py-4 gap-4">

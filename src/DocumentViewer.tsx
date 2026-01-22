@@ -45,11 +45,15 @@ function isRecentViewFromURL(): boolean {
   return window.location.pathname === "/recent";
 }
 
-// Check if URL is collections view (default view or /collections)
+// Check if URL is collections view
 function isCollectionsViewFromURL(): boolean {
   const pathname = window.location.pathname;
-  // Collections is the default view (root) or explicit /collections
-  return pathname === "/" || pathname === "/collections" || pathname.startsWith("/collections/");
+  return pathname === "/collections" || pathname.startsWith("/collections/");
+}
+
+// Check if should redirect to /collections (when at root)
+function shouldRedirectToCollections(): boolean {
+  return window.location.pathname === "/";
 }
 
 // Get selected collection from URL
@@ -204,8 +208,8 @@ export function DocumentViewer() {
   };
 
   const closePreview = useCallback(() => {
-    // Go back to collections view (default)
-    window.history.pushState({}, "", "/");
+    // Go back to collections view
+    window.history.pushState({}, "", "/collections");
     setPreviewFile(null);
     setPreviewContent("");
     setPreviewMetadata(null);
@@ -384,12 +388,6 @@ export function DocumentViewer() {
     loadRecentFiles(filter, 1);
   }, [loadRecentFiles]);
 
-  const handleCloseRecent = useCallback(() => {
-    setIsRecentMode(false);
-    // Go to collections view (default)
-    window.history.pushState({}, "", "/");
-  }, []);
-
   // Collections handlers
   const loadCollections = useCallback(async () => {
     setIsLoadingCollections(true);
@@ -437,7 +435,7 @@ export function DocumentViewer() {
   }, []);
 
   const handleShowCollections = useCallback(() => {
-    window.history.pushState({}, "", "/");
+    window.history.pushState({}, "", "/collections");
     setIsRecentMode(false);
     setIsSearchMode(false);
     setSearchQuery("");
@@ -461,12 +459,6 @@ export function DocumentViewer() {
     setCollectionCurrentPage(1);
   }, []);
 
-  const handleCloseCollections = useCallback(() => {
-    // Collections is the default view, so "closing" just resets to root
-    setSelectedCollection(null);
-    window.history.pushState({}, "", "/");
-  }, []);
-
   const handleCollectionPageChange = useCallback((page: number) => {
     if (selectedCollection) {
       loadCollectionTranscripts(selectedCollection, page);
@@ -477,6 +469,11 @@ export function DocumentViewer() {
   // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
   // for this purpose since we pass explicit values rather than relying on closure state
   useEffect(() => {
+    // Redirect root to /collections
+    if (shouldRedirectToCollections()) {
+      window.history.replaceState({}, "", "/collections");
+    }
+
     const initialQuery = getSearchQueryFromURL();
     if (initialQuery) {
       handleSearch(initialQuery, false);
@@ -486,7 +483,7 @@ export function DocumentViewer() {
       const pageFromUrl = getPageFromURL();
       setRecentCurrentPage(pageFromUrl);
       loadRecentFiles("all", pageFromUrl);
-    } else if (isCollectionsViewFromURL()) {
+    } else if (isCollectionsViewFromURL() || shouldRedirectToCollections()) {
       const collectionFromUrl = getCollectionFromURL();
       if (collectionFromUrl) {
         setSelectedCollection(collectionFromUrl);
@@ -501,10 +498,15 @@ export function DocumentViewer() {
   // Handle browser back/forward
   useEffect(() => {
     const handlePopState = () => {
+      // Redirect root to /collections
+      if (shouldRedirectToCollections()) {
+        window.history.replaceState({}, "", "/collections");
+      }
+
       const previewKey = getPreviewKeyFromURL();
       const urlQuery = getSearchQueryFromURL();
       const isRecent = isRecentViewFromURL();
-      const isCollections = isCollectionsViewFromURL();
+      const isCollections = isCollectionsViewFromURL() || shouldRedirectToCollections();
 
       if (previewKey) {
         setPreviewFile(previewKey);
@@ -704,7 +706,6 @@ export function DocumentViewer() {
             onTypeFilterChange={handleRecentTypeFilterChange}
             onPreview={handlePreview}
             onDownload={handleDownload}
-            onClose={handleCloseRecent}
             currentPage={recentCurrentPage}
             pageSize={PAGE_SIZE}
             onPageChange={handleRecentPageChange}
@@ -719,7 +720,6 @@ export function DocumentViewer() {
             onBack={handleCollectionBack}
             onPreview={handlePreview}
             onDownload={handleDownload}
-            onClose={handleCloseCollections}
             currentPage={collectionCurrentPage}
             pageSize={PAGE_SIZE}
             totalTranscripts={collectionTotalTranscripts}
