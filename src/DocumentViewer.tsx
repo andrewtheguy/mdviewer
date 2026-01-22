@@ -263,19 +263,20 @@ export function DocumentViewer() {
 
   const handleReindex = useCallback(async () => {
     setError(null);
+    setIsReindexing(true);
     try {
       const response = await fetch("/api/search/reindex", { method: "POST" });
       const data = await response.json();
 
       if (!response.ok) {
         setError(data.error || `Reindex failed with status ${response.status}`);
+        setIsReindexing(false);
         return;
       }
-
       // Started successfully - polling will track progress
-      setIsReindexing(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reindex");
+      setIsReindexing(false);
     }
   }, []);
 
