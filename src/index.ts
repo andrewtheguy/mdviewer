@@ -125,7 +125,9 @@ app.use("/api", (req, res, next) => {
     }
   }
 
-  if (needsReindex && !req.path.startsWith("/search/reindex")) {
+  // Allow exact /search/reindex or subpaths like /search/reindex/status
+  const isReindexRoute = req.path === "/search/reindex" || req.path.startsWith("/search/reindex/");
+  if (needsReindex && !isReindexRoute) {
     res.status(503).json({ error: "Reindex required", needsReindex: true });
     return;
   }

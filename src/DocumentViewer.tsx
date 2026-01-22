@@ -75,6 +75,8 @@ export function DocumentViewer() {
   const wasReindexingRef = useRef(false);
   // Ref to store restoreStateFromURL for use in polling effect
   const restoreStateFromURLRef = useRef<(() => void) | null>(null);
+  // Track consecutive status check failures for debugging
+  const consecutiveStatusFailuresRef = useRef(0);
 
   const isMarkdown = (key: string): boolean => {
     return key.toLowerCase().endsWith(".md");
@@ -267,6 +269,9 @@ export function DocumentViewer() {
         const data = await response.json();
         const nowReindexing = data.running;
 
+        // Reset failure counter on success
+        consecutiveStatusFailuresRef.current = 0;
+
         // Detect reindex completion (was running, now not running)
         if (wasReindexingRef.current && !nowReindexing) {
           // Refresh current view after reindex completes
@@ -275,8 +280,12 @@ export function DocumentViewer() {
 
         wasReindexingRef.current = nowReindexing;
         setIsReindexing(nowReindexing);
-      } catch {
-        // Ignore errors
+      } catch (err) {
+        consecutiveStatusFailuresRef.current++;
+        console.error(
+          `[DocumentViewer] Status check failed (attempt ${consecutiveStatusFailuresRef.current}):`,
+          err
+        );
       }
     };
 

@@ -15,16 +15,27 @@ const PORT = process.env.JOB_RUNNER_PORT || 3001;
 const app = express();
 
 app.post("/reindex", (_req, res) => {
-  const result = startReindex();
-  if (result.success) {
-    res.json(result);
-  } else {
-    res.status(409).json({ error: result.message });
+  try {
+    const result = startReindex();
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(409).json({ error: result.message });
+    }
+  } catch (err) {
+    console.error("[JobRunner] Failed to start reindex:", err);
+    res.status(500).json({ error: "Failed to start reindex" });
   }
 });
 
 app.get("/status", (_req, res) => {
-  res.json(getReindexStatus());
+  try {
+    res.json(getReindexStatus());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[JobRunner] Failed to get reindex status:", err);
+    res.status(500).json({ error: "Failed to get reindex status", details: message });
+  }
 });
 
 app.listen(PORT, () => {
