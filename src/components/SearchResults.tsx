@@ -91,7 +91,8 @@ export function SearchResults({
               return (
                 <tr
                   key={hit.id}
-                  className="border-t hover:bg-muted/30"
+                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  onClick={() => onPreview(hit.key)}
                 >
                   <td className="p-3">
                     <div className="flex flex-col gap-1">
@@ -104,7 +105,7 @@ export function SearchResults({
                         ) : (
                           <span className="break-all font-medium">{hit.title || hit.name}</span>
                         )}
-                        <span className="text-muted-foreground text-xs whitespace-nowrap">
+                        <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
                           ({formatBytes(hit.size)})
                         </span>
                       </div>
@@ -119,6 +120,7 @@ export function SearchResults({
                         </span>
                       )}
                       <div className="sm:hidden mt-1 text-xs text-muted-foreground">
+                        <span className="block mb-1">({formatBytes(hit.size)})</span>
                         {hit._formatted?.content ? (
                           <HighlightedText html={hit._formatted.content} />
                         ) : (
@@ -136,7 +138,10 @@ export function SearchResults({
                       )}
                     </div>
                   </td>
-                  <td className="p-3 text-right space-x-1 whitespace-nowrap">
+                  <td
+                    className="p-3 text-right space-x-1 whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <Button
                       size="icon"
                       variant="ghost"

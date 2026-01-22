@@ -1,192 +1,75 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
 import { SearchBar } from "@/components/SearchBar";
-import { SearchResults, type SearchHit } from "@/components/SearchResults";
-import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
-import { CollectionsView, type CollectionSummary, type CollectionTitle, type CollectionTranscript } from "@/components/CollectionsView";
-import { ChevronLeft, Loader2, Clock, RotateCw, Library } from "lucide-react";
-
-interface PreviewMetadata {
-  collection: string | null;
-  title: string | null;
-  creationDate: number | null;
-  creationDateISO: string | null;
-}
-
-// Encode key as base64 URL-safe
-function encodeKey(key: string): string {
-  const utf8Bytes = new TextEncoder().encode(key);
-  const binaryStr = Array.from(utf8Bytes, (byte) => String.fromCharCode(byte)).join("");
-  const base64 = btoa(binaryStr);
-  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-// Decode base64 URL-safe key
-function decodeKey(encoded: string): string {
-  let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-  while (base64.length % 4) {
-    base64 += "=";
-  }
-  const binaryStr = atob(base64);
-  const bytes = Uint8Array.from(binaryStr, (char) => char.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-// Get search query from URL
-function getSearchQueryFromURL(): string {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("q") || "";
-}
-
-// Check if URL is /recent
-function isRecentViewFromURL(): boolean {
-  return window.location.pathname === "/recent";
-}
-
-// Check if URL is collections view
-function isCollectionsViewFromURL(): boolean {
-  const pathname = window.location.pathname;
-  return pathname === "/collections" || pathname.startsWith("/collections/");
-}
-
-// Check if should redirect to /collections (when at root)
-function shouldRedirectToCollections(): boolean {
-  return window.location.pathname === "/";
-}
-
-// Get selected collection from URL
-// URL structure: /collections/:collection or /collections/:collection/:title
-function getCollectionFromURL(): string | null {
-  const match = window.location.pathname.match(/^\/collections\/([^/]+)/);
-  if (match && match[1]) {
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-// Get selected title from URL
-// URL structure: /collections/:collection/:title
-function getTitleFromURL(): string | null {
-  const match = window.location.pathname.match(/^\/collections\/[^/]+\/(.+)$/);
-  if (match && match[1]) {
-    try {
-      return decodeURIComponent(match[1]);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-// Get page number from URL query params
-function getPageFromURL(): number {
-  const params = new URLSearchParams(window.location.search);
-  const pageStr = params.get("page");
-  if (!pageStr) return 1;
-  const page = parseInt(pageStr, 10);
-  return Number.isNaN(page) || page < 1 ? 1 : page;
-}
-
-// Get type filter from URL query params
-function getTypeFilterFromURL(): FileTypeFilter {
-  const params = new URLSearchParams(window.location.search);
-  const type = params.get("type");
-  if (type === "txt" || type === "md") {
-    return type;
-  }
-  return "all";
-}
-
-// Get preview key from URL
-function getPreviewKeyFromURL(): string | null {
-  const match = window.location.pathname.match(/^\/preview\/(.+)$/);
-  if (match && match[1]) {
-    try {
-      return decodeKey(match[1]);
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-// Get return URL from query params (for preview back navigation)
-function getReturnUrlFromURL(): string {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("from") || "/collections";
-}
-
-// Get current page URL (pathname + search, excluding 'from' param)
-function getCurrentPageUrl(): string {
-  const url = new URL(window.location.href);
-  url.searchParams.delete("from");
-  return url.pathname + url.search;
-}
-
-// Update page query param in URL and push to history
-function updatePageInURL(page: number): void {
-  const url = new URL(window.location.href);
-  if (page === 1) {
-    url.searchParams.delete("page");
-  } else {
-    url.searchParams.set("page", String(page));
-  }
-  window.history.pushState({}, "", `${url.pathname}${url.search}`);
-}
-
-const PAGE_SIZE = 50;
+import { SearchResults } from "@/components/SearchResults";
+import { RecentFiles } from "@/components/RecentFiles";
+import { CollectionsView } from "@/components/CollectionsView";
+import { Loader2, Clock, RotateCw, Library, X } from "lucide-react";
+import {
+  usePreview,
+  useSearch,
+  useRecent,
+  useCollections,
+  PAGE_SIZE,
+  encodeKey,
+  getSearchQueryFromURL,
+  isRecentViewFromURL,
+  isCollectionsViewFromURL,
+  shouldRedirectToCollections,
+  getCollectionFromURL,
+  getTitleFromURL,
+  getPageFromURL,
+  getTypeFilterFromURL,
+} from "@/hooks";
 
 export function DocumentViewer() {
   const [error, setError] = useState<string | null>(null);
-  const [previewContent, setPreviewContent] = useState<string>("");
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [previewMetadata, setPreviewMetadata] = useState<PreviewMetadata | null>(null);
-
-  const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
-
-  // Search state
-  const initialSearchQuery = getSearchQueryFromURL();
-  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
-  const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
-  const [searchTotalHits, setSearchTotalHits] = useState(0);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isSearchMode, setIsSearchMode] = useState(!!initialSearchQuery);
-  const [searchCurrentPage, setSearchCurrentPage] = useState(1);
 
   // Reindex state
   const [isReindexing, setIsReindexing] = useState(false);
 
-  // Recent files state
-  const [isRecentMode, setIsRecentMode] = useState(isRecentViewFromURL);
-  const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
-  const [recentTotalFiles, setRecentTotalFiles] = useState(0);
-  const [isLoadingRecent, setIsLoadingRecent] = useState(false);
-  const [recentTypeFilter, setRecentTypeFilter] = useState<FileTypeFilter>("all");
-  const [recentCurrentPage, setRecentCurrentPage] = useState(1);
+  // Use custom hooks for state management
+  const preview = usePreview();
+  const search = useSearch(setError);
+  const recent = useRecent(setError);
+  const collections = useCollections(setError);
 
-  // Collections state
-  const [collections, setCollections] = useState<CollectionSummary[]>([]);
-  const [totalCollections, setTotalCollections] = useState(0);
-  const [collectionsListCurrentPage, setCollectionsListCurrentPage] = useState(1);
-  const [selectedCollection, setSelectedCollection] = useState<string | null>(getCollectionFromURL);
-  const [isLoadingCollections, setIsLoadingCollections] = useState(false);
+  // Refs to store latest hook methods for stable callbacks
+  // This prevents callbacks from being recreated on every hook state change
+  const restoreStateMethodsRef = useRef<{
+    restorePreviewFromURL: typeof preview.restorePreviewFromURL;
+    setIsRecentMode: typeof recent.setIsRecentMode;
+    clearSearchState: typeof search.clearSearchState;
+    restoreCollectionsFromURL: typeof collections.restoreCollectionsFromURL;
+    restoreRecentFromURL: typeof recent.restoreRecentFromURL;
+    handleSearch: typeof search.handleSearch;
+    loadRecentFiles: typeof recent.loadRecentFiles;
+    setSelectedCollection: typeof collections.setSelectedCollection;
+    setSelectedTitle: typeof collections.setSelectedTitle;
+    loadCollectionTranscripts: typeof collections.loadCollectionTranscripts;
+    loadCollectionTitles: typeof collections.loadCollectionTitles;
+    loadCollections: typeof collections.loadCollections;
+  } | undefined>(undefined);
 
-  // Titles state (level 2)
-  const [collectionTitles, setCollectionTitles] = useState<CollectionTitle[]>([]);
-  const [totalCollectionTitles, setTotalCollectionTitles] = useState(0);
-  const [titlesCurrentPage, setTitlesCurrentPage] = useState(1);
-  const [selectedTitle, setSelectedTitle] = useState<string | null>(getTitleFromURL);
-
-  // Transcripts state (level 3)
-  const [collectionTranscripts, setCollectionTranscripts] = useState<CollectionTranscript[]>([]);
-  const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
-  const [collectionCurrentPage, setCollectionCurrentPage] = useState(1);
+  // Synchronously update refs after render (useLayoutEffect runs before browser paint)
+  useLayoutEffect(() => {
+    restoreStateMethodsRef.current = {
+      restorePreviewFromURL: preview.restorePreviewFromURL,
+      setIsRecentMode: recent.setIsRecentMode,
+      clearSearchState: search.clearSearchState,
+      restoreCollectionsFromURL: collections.restoreCollectionsFromURL,
+      restoreRecentFromURL: recent.restoreRecentFromURL,
+      handleSearch: search.handleSearch,
+      loadRecentFiles: recent.loadRecentFiles,
+      setSelectedCollection: collections.setSelectedCollection,
+      setSelectedTitle: collections.setSelectedTitle,
+      loadCollectionTranscripts: collections.loadCollectionTranscripts,
+      loadCollectionTitles: collections.loadCollectionTitles,
+      loadCollections: collections.loadCollections,
+    };
+  });
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -232,7 +115,7 @@ export function DocumentViewer() {
     }
   }, []);
 
-  const handleDownload = async (key: string) => {
+  const handleDownload = useCallback(async (key: string) => {
     try {
       const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
       if (!response.ok) {
@@ -264,436 +147,125 @@ export function DocumentViewer() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to download file");
     }
-  };
-
-  const handlePreview = (key: string) => {
-    const encoded = encodeKey(key);
-    const currentUrl = getCurrentPageUrl();
-    const previewUrl = `/preview/${encoded}?from=${encodeURIComponent(currentUrl)}`;
-    window.history.pushState({}, "", previewUrl);
-    setPreviewFile(key);
-  };
-
-  const loadPreviewContent = useCallback(async (key: string) => {
-    setPreviewLoading(true);
-    setPreviewContent("");
-    setPreviewMetadata(null);
-    setError(null);
-    try {
-      const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`);
-      if (!response.ok) {
-        let errorMessage = "Failed to preview file";
-        try {
-          const data = await response.json();
-          errorMessage = data.error || response.statusText || errorMessage;
-        } catch {
-          errorMessage = response.statusText || errorMessage;
-        }
-        setPreviewContent(`Error: ${errorMessage}`);
-        return;
-      }
-      const data = await response.json();
-      setPreviewContent(data.content);
-      setPreviewMetadata({
-        collection: data.collection,
-        title: data.title,
-        creationDate: data.creationDate,
-        creationDateISO: data.creationDateISO,
-      });
-    } catch (err) {
-      setPreviewContent(`Error: ${err instanceof Error ? err.message : "Failed to preview file"}`);
-    } finally {
-      setPreviewLoading(false);
-    }
   }, []);
 
-  // Search handlers
-  const performSearch = useCallback(async (query: string, page = 1) => {
-    setIsSearching(true);
-
-    try {
-      const offset = (page - 1) * PAGE_SIZE;
-      const response = await fetch(
-        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`
-      );
-      const data = await response.json();
-
-      if (data.error) {
-        setError(data.error);
-        setSearchResults([]);
-        setSearchTotalHits(0);
-      } else {
-        setSearchResults(data.hits || []);
-        setSearchTotalHits(data.totalHits || 0);
-        setSearchCurrentPage(page);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
-      setSearchResults([]);
-      setSearchTotalHits(0);
-      setSearchCurrentPage(1);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
-
-  const handleSearch = useCallback(async (query: string, updateUrl = true) => {
-    setSearchQuery(query);
-
-    if (!query.trim()) {
-      setIsSearchMode(false);
-      setSearchResults([]);
-      setSearchTotalHits(0);
-      setSearchCurrentPage(1);
-      if (updateUrl) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("q");
-        window.history.pushState({}, "", url.pathname);
-      }
-      return;
-    }
-
-    // Update URL with search query
-    if (updateUrl) {
-      const url = new URL(window.location.href);
-      url.searchParams.set("q", query);
-      window.history.pushState({}, "", `${url.pathname}${url.search}`);
-    }
-
-    setIsSearchMode(true);
-    setSearchCurrentPage(1);
-    performSearch(query, 1);
-  }, [performSearch]);
-
-  const handleSearchPageChange = useCallback((page: number) => {
-    performSearch(searchQuery, page);
-  }, [searchQuery, performSearch]);
-
-  const handleClearSearch = useCallback(() => {
-    setSearchQuery("");
-    setSearchResults([]);
-    setSearchTotalHits(0);
-    setSearchCurrentPage(1);
-    setIsSearchMode(false);
-    // Clear URL query param
-    const url = new URL(window.location.href);
-    url.searchParams.delete("q");
-    window.history.pushState({}, "", url.pathname);
-  }, []);
-
-  // Recent files handlers
-  const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all", page = 1) => {
-    setIsLoadingRecent(true);
-    try {
-      const offset = (page - 1) * PAGE_SIZE;
-      const response = await fetch(
-        `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`
-      );
-      const data = await response.json();
-      if (data.error) {
-        setError(data.error);
-        setRecentFiles([]);
-        setRecentTotalFiles(0);
-      } else {
-        setRecentFiles(data.files || []);
-        setRecentTotalFiles(data.totalFiles || 0);
-        setRecentCurrentPage(page);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load recent files");
-      setRecentFiles([]);
-      setRecentTotalFiles(0);
-      setRecentCurrentPage(1);
-    } finally {
-      setIsLoadingRecent(false);
-    }
-  }, []);
-
-  const handleRecentPageChange = useCallback((page: number) => {
-    const url = new URL(window.location.href);
-    if (page === 1) {
-      url.searchParams.delete("page");
-    } else {
-      url.searchParams.set("page", String(page));
-    }
-    // Preserve type filter in URL
-    if (recentTypeFilter === "all") {
-      url.searchParams.delete("type");
-    } else {
-      url.searchParams.set("type", recentTypeFilter);
-    }
-    window.history.pushState({}, "", `${url.pathname}${url.search}`);
-    loadRecentFiles(recentTypeFilter, page);
-  }, [recentTypeFilter, loadRecentFiles]);
+  // Coordinated handlers that manage multiple hooks and close preview
+  const handleShowCollections = useCallback(() => {
+    preview.closePreview();
+    recent.setIsRecentMode(false);
+    search.clearSearchState();
+    collections.handleShowCollections();
+  }, [preview, recent, search, collections]);
 
   const handleShowRecent = useCallback(() => {
-    window.history.pushState({}, "", "/recent");
-    setIsRecentMode(true);
-    setIsSearchMode(false);
-    setSearchQuery("");
-    // Start at page 1 when entering recent mode fresh
-    setRecentCurrentPage(1);
-    loadRecentFiles(recentTypeFilter, 1);
-  }, [loadRecentFiles, recentTypeFilter]);
+    preview.closePreview();
+    search.clearSearchState();
+    recent.handleShowRecent();
+  }, [preview, search, recent]);
 
-  const handleRecentTypeFilterChange = useCallback((filter: FileTypeFilter) => {
-    // Reset to page 1 and update type in URL when filter changes
-    const url = new URL(window.location.href);
-    url.searchParams.delete("page");
-    if (filter === "all") {
-      url.searchParams.delete("type");
-    } else {
-      url.searchParams.set("type", filter);
-    }
-    window.history.pushState({}, "", `${url.pathname}${url.search}`);
-    setRecentTypeFilter(filter);
-    setRecentCurrentPage(1);
-    loadRecentFiles(filter, 1);
-  }, [loadRecentFiles]);
+  // Wrapped handlers that close preview when list view changes
+  const handleSearch = useCallback((query: string, updateUrl?: boolean) => {
+    preview.closePreview();
+    search.handleSearch(query, updateUrl);
+  }, [preview, search]);
 
-  // Collections handlers
-  const loadCollections = useCallback(async (page = 1) => {
-    setIsLoadingCollections(true);
-    try {
-      const offset = (page - 1) * PAGE_SIZE;
-      const response = await fetch(`/api/collections?limit=${PAGE_SIZE}&offset=${offset}`);
-      const data = await response.json();
-      if (data.error) {
-        setError(data.error);
-        setCollections([]);
-        setTotalCollections(0);
-      } else {
-        setCollections(data.collections || []);
-        setTotalCollections(data.total || 0);
-        setCollectionsListCurrentPage(page);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load collections");
-      setCollections([]);
-      setTotalCollections(0);
-    } finally {
-      setIsLoadingCollections(false);
-    }
-  }, []);
+  const handleClearSearch = useCallback(() => {
+    preview.closePreview();
+    search.handleClearSearch();
+  }, [preview, search]);
 
-  const loadCollectionTitles = useCallback(async (collection: string, page = 1) => {
-    setIsLoadingCollections(true);
-    try {
-      const offset = (page - 1) * PAGE_SIZE;
-      const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}`
-      );
-      const data = await response.json();
-      if (data.error) {
-        setError(data.error);
-        setCollectionTitles([]);
-        setTotalCollectionTitles(0);
-      } else {
-        setCollectionTitles(data.titles || []);
-        setTotalCollectionTitles(data.total || 0);
-        setTitlesCurrentPage(page);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load collection titles");
-      setCollectionTitles([]);
-      setTotalCollectionTitles(0);
-    } finally {
-      setIsLoadingCollections(false);
-    }
-  }, []);
+  const handleSearchPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    search.handleSearchPageChange(page);
+  }, [preview, search]);
 
-  const loadCollectionTranscripts = useCallback(async (collection: string, title: string, page = 1) => {
-    setIsLoadingCollections(true);
-    try {
-      const offset = (page - 1) * PAGE_SIZE;
-      const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}`
-      );
-      const data = await response.json();
-      if (data.error) {
-        setError(data.error);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
-      } else {
-        setCollectionTranscripts(data.transcripts || []);
-        setCollectionTotalTranscripts(data.total || 0);
-        setCollectionCurrentPage(page);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load collection transcripts");
-      setCollectionTranscripts([]);
-      setCollectionTotalTranscripts(0);
-    } finally {
-      setIsLoadingCollections(false);
-    }
-  }, []);
+  const handleRecentPageChange = useCallback((page: number) => {
+    preview.closePreview();
+    recent.handleRecentPageChange(page);
+  }, [preview, recent]);
 
-  const handleShowCollections = useCallback(() => {
-    window.history.pushState({}, "", "/collections");
-    setIsRecentMode(false);
-    setIsSearchMode(false);
-    setSearchQuery("");
-    setSelectedCollection(null);
-    setSelectedTitle(null);
-    setCollectionTitles([]);
-    setTotalCollectionTitles(0);
-    setTitlesCurrentPage(1);
-    setCollectionTranscripts([]);
-    setCollectionTotalTranscripts(0);
-    setCollectionCurrentPage(1);
-    loadCollections();
-  }, [loadCollections]);
+  const handleRecentTypeFilterChange = useCallback((filter: "all" | "txt" | "md") => {
+    preview.closePreview();
+    recent.handleRecentTypeFilterChange(filter);
+  }, [preview, recent]);
 
   const handleSelectCollection = useCallback((collection: string) => {
-    window.history.pushState({}, "", `/collections/${encodeURIComponent(collection)}`);
-    setSelectedCollection(collection);
-    setSelectedTitle(null);
-    setTitlesCurrentPage(1);
-    loadCollectionTitles(collection, 1);
-  }, [loadCollectionTitles]);
+    preview.closePreview();
+    collections.handleSelectCollection(collection);
+  }, [preview, collections]);
 
   const handleCollectionBack = useCallback(() => {
-    window.history.pushState({}, "", "/collections");
-    setSelectedCollection(null);
-    setSelectedTitle(null);
-    setCollectionTitles([]);
-    setTotalCollectionTitles(0);
-    setTitlesCurrentPage(1);
-    setCollectionTranscripts([]);
-    setCollectionTotalTranscripts(0);
-    setCollectionCurrentPage(1);
-  }, []);
+    preview.closePreview();
+    collections.handleCollectionBack();
+  }, [preview, collections]);
 
   const handleSelectTitle = useCallback((title: string) => {
-    if (selectedCollection) {
-      window.history.pushState({}, "", `/collections/${encodeURIComponent(selectedCollection)}/${encodeURIComponent(title)}`);
-      setSelectedTitle(title);
-      setCollectionCurrentPage(1);
-      loadCollectionTranscripts(selectedCollection, title, 1);
-    }
-  }, [selectedCollection, loadCollectionTranscripts]);
+    preview.closePreview();
+    collections.handleSelectTitle(title);
+  }, [preview, collections]);
 
   const handleTitleBack = useCallback(() => {
-    if (selectedCollection) {
-      window.history.pushState({}, "", `/collections/${encodeURIComponent(selectedCollection)}`);
-      setSelectedTitle(null);
-      setCollectionTranscripts([]);
-      setCollectionTotalTranscripts(0);
-      setCollectionCurrentPage(1);
-    }
-  }, [selectedCollection]);
+    preview.closePreview();
+    collections.handleTitleBack();
+  }, [preview, collections]);
 
   const handleTitlesPageChange = useCallback((page: number) => {
-    if (selectedCollection) {
-      updatePageInURL(page);
-      loadCollectionTitles(selectedCollection, page);
-    }
-  }, [selectedCollection, loadCollectionTitles]);
+    preview.closePreview();
+    collections.handleTitlesPageChange(page);
+  }, [preview, collections]);
 
   const handleCollectionPageChange = useCallback((page: number) => {
-    if (selectedCollection && selectedTitle) {
-      updatePageInURL(page);
-      loadCollectionTranscripts(selectedCollection, selectedTitle, page);
-    }
-  }, [selectedCollection, selectedTitle, loadCollectionTranscripts]);
+    preview.closePreview();
+    collections.handleCollectionPageChange(page);
+  }, [preview, collections]);
 
   const handleCollectionsListPageChange = useCallback((page: number) => {
-    updatePageInURL(page);
-    loadCollections(page);
-  }, [loadCollections]);
+    preview.closePreview();
+    collections.handleCollectionsListPageChange(page);
+  }, [preview, collections]);
 
   // Shared function to restore state from current URL
-  // Used by both closePreview and popstate handler
+  // Used by popstate handler to sync state with browser navigation
+  // Uses refs to avoid recreating callback on every hook state change
   const restoreStateFromURL = useCallback(() => {
+    const methods = restoreStateMethodsRef.current;
+    if (!methods) return;
+
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
       window.history.replaceState({}, "", "/collections");
     }
 
-    const previewKey = getPreviewKeyFromURL();
+    // Restore preview state
+    methods.restorePreviewFromURL();
+
     const urlQuery = getSearchQueryFromURL();
     const isRecent = isRecentViewFromURL();
-    const isCollections = isCollectionsViewFromURL() || shouldRedirectToCollections();
+    const isCollectionsView = isCollectionsViewFromURL() || shouldRedirectToCollections();
 
-    if (previewKey) {
-      setPreviewFile(previewKey);
-      setIsRecentMode(false);
-    } else if (isCollections) {
-      setPreviewFile(null);
-      setPreviewContent("");
-      setPreviewMetadata(null);
-      setIsRecentMode(false);
-      setIsSearchMode(false);
-      const collectionFromUrl = getCollectionFromURL();
-      const titleFromUrl = getTitleFromURL();
-      const pageFromUrl = getPageFromURL();
-      if (collectionFromUrl && titleFromUrl) {
-        // URL: /collections/:collection/:title
-        setSelectedCollection(collectionFromUrl);
-        setSelectedTitle(titleFromUrl);
-        setCollectionCurrentPage(pageFromUrl);
-        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
-      } else if (collectionFromUrl) {
-        // URL: /collections/:collection
-        setSelectedCollection(collectionFromUrl);
-        setSelectedTitle(null);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
-        setTitlesCurrentPage(pageFromUrl);
-        loadCollectionTitles(collectionFromUrl, pageFromUrl);
-      } else {
-        // URL: /collections
-        setSelectedCollection(null);
-        setSelectedTitle(null);
-        setCollectionTitles([]);
-        setTotalCollectionTitles(0);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
-        setCollectionsListCurrentPage(pageFromUrl);
-        loadCollections(pageFromUrl);
-      }
+    // Restore view state (collections/recent/search)
+    if (isCollectionsView) {
+      methods.setIsRecentMode(false);
+      methods.clearSearchState();
+      methods.restoreCollectionsFromURL();
     } else if (isRecent) {
-      setPreviewFile(null);
-      setPreviewContent("");
-      setPreviewMetadata(null);
-      setIsRecentMode(true);
-      setIsSearchMode(false);
-      const pageFromUrl = getPageFromURL();
-      const typeFromUrl = getTypeFilterFromURL();
-      setRecentCurrentPage(pageFromUrl);
-      setRecentTypeFilter(typeFromUrl);
-      loadRecentFiles(typeFromUrl, pageFromUrl);
+      methods.restoreRecentFromURL();
+      methods.clearSearchState();
     }
 
     // Handle search query changes
     if (urlQuery) {
-      handleSearch(urlQuery, false);
-    } else if (!isRecent && !isCollections && !previewKey) {
-      setSearchQuery("");
-      setSearchResults([]);
-      setSearchTotalHits(0);
-      setSearchCurrentPage(1);
-      setIsSearchMode(false);
+      methods.handleSearch(urlQuery, false);
+    } else if (!isRecent && !isCollectionsView) {
+      methods.clearSearchState();
     }
-  }, [handleSearch, loadRecentFiles, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
-
-  const closePreview = useCallback(() => {
-    // Navigate to the return URL from query param, or fallback to /collections
-    const returnUrl = getReturnUrlFromURL();
-    window.history.pushState({}, "", returnUrl);
-    setPreviewFile(null);
-    setPreviewContent("");
-    setPreviewMetadata(null);
-    setPreviewLoading(false);
-
-    // Restore state based on the return URL
-    restoreStateFromURL();
-  }, [restoreStateFromURL]);
+  }, []);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
-  // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
-  // for this purpose since we pass explicit values rather than relying on closure state
   useEffect(() => {
+    const methods = restoreStateMethodsRef.current;
+    if (!methods) return;
+
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
       window.history.replaceState({}, "", "/collections");
@@ -701,36 +273,30 @@ export function DocumentViewer() {
 
     const initialQuery = getSearchQueryFromURL();
     if (initialQuery) {
-      handleSearch(initialQuery, false);
+      methods.handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
       // Read page and type from URL to support direct links
       const pageFromUrl = getPageFromURL();
       const typeFromUrl = getTypeFilterFromURL();
-      setRecentCurrentPage(pageFromUrl);
-      setRecentTypeFilter(typeFromUrl);
-      loadRecentFiles(typeFromUrl, pageFromUrl);
+      methods.loadRecentFiles(typeFromUrl, pageFromUrl);
     } else if (isCollectionsViewFromURL() || shouldRedirectToCollections()) {
       const collectionFromUrl = getCollectionFromURL();
       const titleFromUrl = getTitleFromURL();
       const pageFromUrl = getPageFromURL();
       if (collectionFromUrl && titleFromUrl) {
         // URL: /collections/:collection/:title - load transcripts for this title
-        setSelectedCollection(collectionFromUrl);
-        setSelectedTitle(titleFromUrl);
-        setCollectionCurrentPage(pageFromUrl);
-        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
+        methods.setSelectedCollection(collectionFromUrl);
+        methods.setSelectedTitle(titleFromUrl);
+        methods.loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
       } else if (collectionFromUrl) {
         // URL: /collections/:collection - load titles for this collection
-        setSelectedCollection(collectionFromUrl);
-        setTitlesCurrentPage(pageFromUrl);
-        loadCollectionTitles(collectionFromUrl, pageFromUrl);
+        methods.setSelectedCollection(collectionFromUrl);
+        methods.loadCollectionTitles(collectionFromUrl, pageFromUrl);
       } else {
         // URL: /collections - load collections list
-        setCollectionsListCurrentPage(pageFromUrl);
-        loadCollections(pageFromUrl);
+        methods.loadCollections(pageFromUrl);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle browser back/forward
@@ -741,13 +307,6 @@ export function DocumentViewer() {
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [restoreStateFromURL]);
-
-  // Load content when preview file changes
-  useEffect(() => {
-    if (previewFile) {
-      loadPreviewContent(previewFile);
-    }
-  }, [previewFile, loadPreviewContent]);
 
   // Get file name from full key
   const getFileName = (key: string): string => {
@@ -768,51 +327,9 @@ export function DocumentViewer() {
     }
   };
 
-  // Full-screen preview view
-  if (previewFile) {
-    return (
-      <div className="fixed inset-0 bg-background z-50 flex flex-col">
-        <div className="flex items-center gap-3 p-4 border-b bg-background">
-          <Button variant="ghost" size="sm" onClick={closePreview} className="gap-2">
-            <ChevronLeft className="size-4" />
-            Back
-          </Button>
-          <div className="flex flex-col flex-1 min-w-0">
-            {previewMetadata?.collection && (
-              <span className="text-xs text-muted-foreground">{previewMetadata.collection}</span>
-            )}
-            <h1 className="text-sm font-medium truncate">
-              {previewMetadata?.title || getFileName(previewFile)}
-            </h1>
-            {previewMetadata?.creationDateISO && (
-              <span className="text-xs text-muted-foreground">
-                {formatPreviewDate(previewMetadata.creationDateISO)}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex-1 overflow-auto p-6">
-          {previewLoading ? (
-            <div className="text-center text-muted-foreground py-8">
-              Loading...
-            </div>
-          ) : isMarkdown(previewFile) ? (
-            <div className="prose prose-neutral dark:prose-invert max-w-4xl mx-auto prose-ul:list-disc prose-ol:list-decimal prose-li:my-1">
-              <Markdown>{previewContent}</Markdown>
-            </div>
-          ) : (
-            <pre className="font-mono text-sm whitespace-pre-wrap break-words max-w-4xl mx-auto">
-              {previewContent}
-            </pre>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
-      <CardHeader className="px-4 pb-4 sm:px-6">
+      <CardHeader className="px-2 pb-4 sm:px-6">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
@@ -836,16 +353,16 @@ export function DocumentViewer() {
       </CardHeader>
       <CardContent className="p-0 sm:p-6 pt-0 sm:pt-0 space-y-4">
         {error && (
-          <div className="mx-4 sm:mx-0 p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
+          <div className="mx-2 sm:mx-0 p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
             {error}
           </div>
         )}
 
-        <div className="px-4 sm:px-0 flex flex-col gap-3">
+        <div className="px-2 sm:px-0 flex flex-col gap-3">
            {/* Actions Toolbar */}
           <div className="flex flex-wrap items-center gap-2 border-b pb-3">
             <Button
-              variant={!isRecentMode && !isSearchMode ? "secondary" : "ghost"}
+              variant={!recent.isRecentMode && !search.isSearchMode ? "secondary" : "ghost"}
               size="sm"
               onClick={handleShowCollections}
               className="gap-2 h-8"
@@ -855,7 +372,7 @@ export function DocumentViewer() {
             </Button>
 
             <Button
-              variant={isRecentMode ? "secondary" : "ghost"}
+              variant={recent.isRecentMode ? "secondary" : "ghost"}
               size="sm"
               onClick={handleShowRecent}
               className="gap-2 h-8"
@@ -869,64 +386,103 @@ export function DocumentViewer() {
           <SearchBar
             onSearch={handleSearch}
             onClear={handleClearSearch}
-            isSearching={isSearching}
-            initialQuery={searchQuery}
+            isSearching={search.isSearching}
+            initialQuery={search.searchQuery}
           />
         </div>
 
-        <div className="px-4 sm:px-0">
-        {/* Search Results */}
-        {isSearchMode ? (
-          <SearchResults
-            hits={searchResults}
-            query={searchQuery}
-            totalHits={searchTotalHits}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            currentPage={searchCurrentPage}
-            pageSize={PAGE_SIZE}
-            loading={isSearching}
-            onPageChange={handleSearchPageChange}
-          />
-        ) : isRecentMode ? (
-          <RecentFiles
-            files={recentFiles}
-            totalFiles={recentTotalFiles}
-            loading={isLoadingRecent}
-            typeFilter={recentTypeFilter}
-            onTypeFilterChange={handleRecentTypeFilterChange}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            currentPage={recentCurrentPage}
-            pageSize={PAGE_SIZE}
-            onPageChange={handleRecentPageChange}
-          />
-        ) : (
-          <CollectionsView
-            collections={collections}
-            totalCollections={totalCollections}
-            collectionsCurrentPage={collectionsListCurrentPage}
-            onCollectionsPageChange={handleCollectionsListPageChange}
-            selectedCollection={selectedCollection}
-            titles={collectionTitles}
-            totalTitles={totalCollectionTitles}
-            titlesCurrentPage={titlesCurrentPage}
-            onTitlesPageChange={handleTitlesPageChange}
-            selectedTitle={selectedTitle}
-            onSelectTitle={handleSelectTitle}
-            onTitleBack={handleTitleBack}
-            transcripts={collectionTranscripts}
-            loading={isLoadingCollections}
-            onSelectCollection={handleSelectCollection}
-            onBack={handleCollectionBack}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            currentPage={collectionCurrentPage}
-            pageSize={PAGE_SIZE}
-            totalTranscripts={collectionTotalTranscripts}
-            onPageChange={handleCollectionPageChange}
-          />
-        )}
+        <div className="px-2 sm:px-0">
+          {preview.previewFile ? (
+            // Inline preview
+            <div className="border rounded-lg">
+              <div className="flex items-center justify-between gap-3 p-2 sm:p-4 border-b bg-muted/50">
+                <div className="flex flex-col flex-1 min-w-0">
+                  {preview.previewMetadata?.collection && (
+                    <span className="text-xs text-muted-foreground">{preview.previewMetadata.collection}</span>
+                  )}
+                  {preview.previewMetadata?.title && (
+                    <h2 className="text-sm font-medium truncate">{preview.previewMetadata.title}</h2>
+                  )}
+                  <span className="text-xs text-muted-foreground truncate">{getFileName(preview.previewFile)}</span>
+                  {preview.previewMetadata?.creationDateISO && (
+                    <span className="text-xs text-muted-foreground">
+                      {formatPreviewDate(preview.previewMetadata.creationDateISO)}
+                    </span>
+                  )}
+                </div>
+                <Button variant="ghost" size="icon" onClick={preview.closePreview} className="size-8" aria-label="Close preview">
+                  <X className="size-4" />
+                </Button>
+              </div>
+              <div className="p-3 sm:p-6 max-h-[70vh] overflow-auto">
+                {preview.previewLoading ? (
+                  <div className="text-center text-muted-foreground py-8">Loading...</div>
+                ) : preview.previewError ? (
+                  <div className="p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
+                    {preview.previewError}
+                  </div>
+                ) : isMarkdown(preview.previewFile) ? (
+                  <div className="prose prose-neutral dark:prose-invert max-w-none prose-ul:list-disc prose-ol:list-decimal prose-li:my-1">
+                    <Markdown>{preview.previewContent}</Markdown>
+                  </div>
+                ) : (
+                  <pre className="font-mono text-sm whitespace-pre-wrap break-words">
+                    {preview.previewContent}
+                  </pre>
+                )}
+              </div>
+            </div>
+          ) : search.isSearchMode ? (
+            <SearchResults
+              hits={search.searchResults}
+              query={search.searchQuery}
+              totalHits={search.searchTotalHits}
+              onPreview={preview.handlePreview}
+              onDownload={handleDownload}
+              currentPage={search.searchCurrentPage}
+              pageSize={PAGE_SIZE}
+              loading={search.isSearching}
+              onPageChange={handleSearchPageChange}
+            />
+          ) : recent.isRecentMode ? (
+            <RecentFiles
+              files={recent.recentFiles}
+              totalFiles={recent.recentTotalFiles}
+              loading={recent.isLoadingRecent}
+              typeFilter={recent.recentTypeFilter}
+              onTypeFilterChange={handleRecentTypeFilterChange}
+              onPreview={preview.handlePreview}
+              onDownload={handleDownload}
+              currentPage={recent.recentCurrentPage}
+              pageSize={PAGE_SIZE}
+              onPageChange={handleRecentPageChange}
+            />
+          ) : (
+            <CollectionsView
+              collections={collections.collections}
+              totalCollections={collections.totalCollections}
+              collectionsCurrentPage={collections.collectionsListCurrentPage}
+              onCollectionsPageChange={handleCollectionsListPageChange}
+              selectedCollection={collections.selectedCollection}
+              titles={collections.collectionTitles}
+              totalTitles={collections.totalCollectionTitles}
+              titlesCurrentPage={collections.titlesCurrentPage}
+              onTitlesPageChange={handleTitlesPageChange}
+              selectedTitle={collections.selectedTitle}
+              onSelectTitle={handleSelectTitle}
+              onTitleBack={handleTitleBack}
+              transcripts={collections.collectionTranscripts}
+              loading={collections.isLoadingCollections}
+              onSelectCollection={handleSelectCollection}
+              onBack={handleCollectionBack}
+              onPreview={preview.handlePreview}
+              onDownload={handleDownload}
+              currentPage={collections.collectionCurrentPage}
+              pageSize={PAGE_SIZE}
+              totalTranscripts={collections.collectionTotalTranscripts}
+              onPageChange={handleCollectionPageChange}
+            />
+          )}
         </div>
       </CardContent>
     </Card>
