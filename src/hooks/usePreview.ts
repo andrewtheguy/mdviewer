@@ -94,6 +94,7 @@ export function usePreview(): UsePreviewReturn {
       setPreviewFile(null);
       setPreviewContent("");
       setPreviewMetadata(null);
+      setPreviewLoading(false);
       setPreviewError(null);
     }
   }, []);

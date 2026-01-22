@@ -189,7 +189,8 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     setCollectionTranscripts([]);
     setCollectionTotalTranscripts(0);
     setCollectionCurrentPage(1);
-  }, []);
+    loadCollections();
+  }, [loadCollections]);
 
   const handleSelectTitle = useCallback((title: string) => {
     if (selectedCollection) {
