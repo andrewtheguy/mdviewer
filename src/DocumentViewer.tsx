@@ -236,11 +236,15 @@ export function DocumentViewer() {
       if (!response.ok) {
         let errorMessage = "Failed to download file";
         try {
-          const data = await response.json();
-          errorMessage = data.error || errorMessage;
+          const bodyText = await response.text();
+          try {
+            const data = JSON.parse(bodyText);
+            errorMessage = data.error || bodyText || response.statusText || errorMessage;
+          } catch {
+            errorMessage = bodyText || response.statusText || errorMessage;
+          }
         } catch {
-          const text = await response.text().catch(() => "");
-          errorMessage = text || response.statusText || errorMessage;
+          errorMessage = response.statusText || errorMessage;
         }
         setError(errorMessage);
         return;
@@ -303,11 +307,15 @@ export function DocumentViewer() {
       if (!response.ok) {
         let errorMessage = "Failed to preview file";
         try {
-          const data = await response.json();
-          errorMessage = data.error || errorMessage;
+          const bodyText = await response.text();
+          try {
+            const data = JSON.parse(bodyText);
+            errorMessage = data.error || bodyText || response.statusText || errorMessage;
+          } catch {
+            errorMessage = bodyText || response.statusText || errorMessage;
+          }
         } catch {
-          const text = await response.text().catch(() => "");
-          errorMessage = text || response.statusText || errorMessage;
+          errorMessage = response.statusText || errorMessage;
         }
         setPreviewContent(`Error: ${errorMessage}`);
         return;
@@ -482,6 +490,8 @@ export function DocumentViewer() {
   }, [navigateToFolder]);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent
+  // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
+  // for this purpose since we pass explicit values rather than relying on closure state
   useEffect(() => {
     const initialQuery = getSearchQueryFromURL();
     if (initialQuery) {
@@ -490,7 +500,8 @@ export function DocumentViewer() {
       // Use "all" directly since this is the initial mount and recentTypeFilter starts as "all"
       loadRecentFiles("all", 0);
     }
-  }, [handleSearch, loadRecentFiles]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Handle browser back/forward
   useEffect(() => {
