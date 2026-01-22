@@ -775,13 +775,13 @@ export function DocumentViewer() {
               {/* Parent folder navigation */}
               {currentPath && (
                 <tr
-                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  className="border-t hover:bg-muted/30 cursor-pointer group"
                   onClick={handleNavigateUp}
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <Folder className="size-4" />
-                      <span>..</span>
+                      <span className="group-hover:underline">..</span>
                     </div>
                   </td>
                   <td className="p-3 text-right text-muted-foreground">
@@ -794,13 +794,13 @@ export function DocumentViewer() {
               {folders.map((folder) => (
                 <tr
                   key={folder}
-                  className="border-t hover:bg-muted/30 cursor-pointer"
+                  className="border-t hover:bg-muted/30 cursor-pointer group"
                   onClick={() => navigateToFolder(currentPath ? `${currentPath}/${folder}` : folder)}
                 >
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <Folder className="size-4" />
-                      <span className="break-all">{folder}</span>
+                      <span className="break-all group-hover:underline">{folder}</span>
                     </div>
                   </td>
                   <td className="p-3 text-right text-muted-foreground">
@@ -813,7 +813,7 @@ export function DocumentViewer() {
               {files.map((obj) => (
                 <tr
                   key={obj.key}
-                  className={`border-t hover:bg-muted/30 ${isPreviewable(obj.key) ? 'cursor-pointer' : ''}`}
+                  className={`border-t hover:bg-muted/30 ${isPreviewable(obj.key) ? 'cursor-pointer group' : ''}`}
                   onClick={() => {
                     if (isPreviewable(obj.key)) {
                       handlePreview(obj.key);
@@ -823,7 +823,7 @@ export function DocumentViewer() {
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <FileText className="size-4 shrink-0" />
-                      <span className="break-all">{getFileName(obj.key)}</span>
+                      <span className="break-all group-hover:underline">{getFileName(obj.key)}</span>
                       <span className="text-muted-foreground text-xs whitespace-nowrap">
                         ({formatBytes(obj.size)})
                       </span>
