@@ -594,15 +594,42 @@ export function DocumentViewer() {
 
   return (
     <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
-      <CardHeader className="px-4 pb-2 sm:px-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <CardHeader className="px-4 pb-4 sm:px-6">
+        <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
             <CardDescription>Browse and view markdown or text files</CardDescription>
           </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              onClick={handleReindex}
+              disabled={isReindexing}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+               {isReindexing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RotateCw className="size-4" />
+              )}
+              <span>{isReindexing ? "Reindexing..." : "Reindex"}</span>
+            </Button>
+
+             <Button
+              onClick={handleRefresh}
+              disabled={loading}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+            >
+              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+              <span>Refresh</span>
+            </Button>
+          </div>
         </div>
       </CardHeader>
-      <CardContent className="p-0 sm:p-6 space-y-4">
+      <CardContent className="p-0 sm:p-6 pt-0 sm:pt-0 space-y-4">
         {error && (
           <div className="mx-4 sm:mx-0 p-3 text-sm text-red-600 bg-red-50 rounded-md dark:bg-red-900/20 dark:text-red-400">
             {error}
@@ -611,55 +638,36 @@ export function DocumentViewer() {
 
         <div className="px-4 sm:px-0 flex flex-col gap-3">
            {/* Actions Toolbar */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 border-b pb-3">
              <Button
               variant={!isRecentMode && !isSearchMode ? "secondary" : "ghost"}
               size="sm"
-              onClick={() => navigateToFolder("")}
-              className="gap-2"
+              onClick={() => {
+                if (isRecentMode || isSearchMode) {
+                  setIsRecentMode(false);
+                  setIsSearchMode(false);
+                  // Switch mode: restore URL to currentPath
+                  if (currentPath) {
+                     window.history.pushState({}, "", `/folder/${encodeKey(currentPath)}`);
+                  } else {
+                     window.history.pushState({}, "", "/");
+                  }
+                }
+              }}
+              className="gap-2 h-8"
             >
               <House className="size-4" />
-              <span className="hidden sm:inline">Browse</span>
+              <span>Browse</span>
             </Button>
 
             <Button
               variant={isRecentMode ? "secondary" : "ghost"}
               size="sm"
               onClick={handleShowRecent}
-              className="gap-2"
+              className="gap-2 h-8"
             >
               <Clock className="size-4" />
-              <span className="hidden sm:inline">Recent</span>
-            </Button>
-
-            <div className="w-px h-4 bg-border mx-1" />
-
-            <Button
-              onClick={handleReindex}
-              disabled={isReindexing}
-              variant="ghost"
-              size="sm"
-              className="gap-2"
-              title="Reindex Search"
-            >
-               {isReindexing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RotateCw className="size-4" />
-              )}
-              <span className="hidden sm:inline">Reindex</span>
-            </Button>
-
-             <Button
-              onClick={handleRefresh}
-              disabled={loading}
-              variant="ghost"
-              size="sm"
-              className="gap-2"
-              title="Refresh"
-            >
-              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">Refresh</span>
+              <span>Recent</span>
             </Button>
           </div>
 
