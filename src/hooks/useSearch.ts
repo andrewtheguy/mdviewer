@@ -108,7 +108,7 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
     }
   }, [onError]);
 
-  const handleSearch = useCallback(async (query: string, updateUrl = true) => {
+  const handleSearch = useCallback((query: string, updateUrl = true) => {
     setSearchQuery(query);
 
     if (!query.trim()) {
@@ -119,7 +119,7 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
       if (updateUrl) {
         const url = new URL(window.location.href);
         url.searchParams.delete("q");
-        window.history.pushState({}, "", url.pathname);
+        window.history.pushState({}, "", `${url.pathname}${url.search}`);
       }
       return;
     }
@@ -149,7 +149,7 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
     // Clear URL query param
     const url = new URL(window.location.href);
     url.searchParams.delete("q");
-    window.history.pushState({}, "", url.pathname);
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
   }, []);
 
   const restoreSearchFromURL = useCallback((searchCallback: (query: string) => void) => {

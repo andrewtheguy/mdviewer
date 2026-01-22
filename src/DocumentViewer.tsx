@@ -80,7 +80,7 @@ export function DocumentViewer() {
     }
   }, []);
 
-  const handleDownload = async (key: string) => {
+  const handleDownload = useCallback(async (key: string) => {
     try {
       const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
       if (!response.ok) {
@@ -112,7 +112,7 @@ export function DocumentViewer() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to download file");
     }
-  };
+  }, []);
 
   // Coordinated handlers that manage multiple hooks and close preview
   const handleShowCollections = useCallback(() => {

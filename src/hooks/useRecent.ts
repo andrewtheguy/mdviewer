@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import {
   PAGE_SIZE,
   isRecentViewFromURL,
@@ -43,12 +43,27 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
   const [recentTypeFilter, setRecentTypeFilter] = useState<FileTypeFilter>("all");
   const [recentCurrentPage, setRecentCurrentPage] = useState(1);
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Cleanup: abort any in-flight request on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all", page = 1) => {
+    // Abort any existing request before starting a new one
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoadingRecent(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`
+        `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`,
+        { signal: controller.signal }
       );
 
       // Check HTTP status before parsing JSON
@@ -85,12 +100,19 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
         setRecentCurrentPage(page);
       }
     } catch (err) {
+      // Ignore AbortError - request was cancelled intentionally
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       onError(err instanceof Error ? err.message : "Failed to load recent files");
       setRecentFiles([]);
       setRecentTotalFiles(0);
       setRecentCurrentPage(1);
     } finally {
-      setIsLoadingRecent(false);
+      // Only clear loading state if this request wasn't aborted
+      if (!controller.signal.aborted) {
+        setIsLoadingRecent(false);
+      }
     }
   }, [onError]);
 
