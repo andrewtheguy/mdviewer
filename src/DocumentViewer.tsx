@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
@@ -35,6 +35,29 @@ export function DocumentViewer() {
   const search = useSearch(setError);
   const recent = useRecent(setError);
   const collections = useCollections(setError);
+
+  // Refs to store latest hook methods for use in restoreStateFromURL
+  // This prevents restoreStateFromURL from being recreated on every hook state change
+  const restoreStateMethodsRef = useRef({
+    restorePreviewFromURL: preview.restorePreviewFromURL,
+    setIsRecentMode: recent.setIsRecentMode,
+    clearSearchState: search.clearSearchState,
+    restoreCollectionsFromURL: collections.restoreCollectionsFromURL,
+    restoreRecentFromURL: recent.restoreRecentFromURL,
+    handleSearch: search.handleSearch,
+  });
+
+  // Keep refs updated with latest methods
+  useEffect(() => {
+    restoreStateMethodsRef.current = {
+      restorePreviewFromURL: preview.restorePreviewFromURL,
+      setIsRecentMode: recent.setIsRecentMode,
+      clearSearchState: search.clearSearchState,
+      restoreCollectionsFromURL: collections.restoreCollectionsFromURL,
+      restoreRecentFromURL: recent.restoreRecentFromURL,
+      handleSearch: search.handleSearch,
+    };
+  });
 
   // Check reindex status on mount and poll while reindexing
   useEffect(() => {
@@ -191,14 +214,17 @@ export function DocumentViewer() {
 
   // Shared function to restore state from current URL
   // Used by popstate handler to sync state with browser navigation
+  // Uses refs to avoid recreating callback on every hook state change
   const restoreStateFromURL = useCallback(() => {
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
       window.history.replaceState({}, "", "/collections");
     }
 
+    const methods = restoreStateMethodsRef.current;
+
     // Restore preview state
-    preview.restorePreviewFromURL();
+    methods.restorePreviewFromURL();
 
     const urlQuery = getSearchQueryFromURL();
     const isRecent = isRecentViewFromURL();
@@ -206,21 +232,21 @@ export function DocumentViewer() {
 
     // Restore view state (collections/recent/search)
     if (isCollectionsView) {
-      recent.setIsRecentMode(false);
-      search.clearSearchState();
-      collections.restoreCollectionsFromURL();
+      methods.setIsRecentMode(false);
+      methods.clearSearchState();
+      methods.restoreCollectionsFromURL();
     } else if (isRecent) {
-      recent.restoreRecentFromURL();
-      search.clearSearchState();
+      methods.restoreRecentFromURL();
+      methods.clearSearchState();
     }
 
     // Handle search query changes
     if (urlQuery) {
-      search.handleSearch(urlQuery, false);
+      methods.handleSearch(urlQuery, false);
     } else if (!isRecent && !isCollectionsView) {
-      search.clearSearchState();
+      methods.clearSearchState();
     }
-  }, [preview, search, recent, collections]);
+  }, []);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   useEffect(() => {
