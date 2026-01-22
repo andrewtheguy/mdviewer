@@ -1,10 +1,10 @@
-import { S3FileManager } from "./S3FileManager";
+import { DocumentViewer } from "./DocumentViewer";
 import "./index.css";
 
 export function App() {
   return (
     <div className="container mx-auto p-4 md:p-8 relative z-10">
-      <S3FileManager />
+      <DocumentViewer />
     </div>
   );
 }

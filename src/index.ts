@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, browseFolder } from "./lib/search-db";
 import { getIndexStats } from "./lib/indexer";
 
 // Validate and decode base64 URL-safe encoded key
@@ -79,15 +79,6 @@ app.use(express.json());
 // Document API Routes (served from database)
 app.get("/api/documents/list", (req, res) => {
   try {
-    // Check if requesting all documents (for folder browsing)
-    const all = req.query.all === "true";
-
-    if (all) {
-      const result = listDocuments({ all: true });
-      res.json({ objects: result.objects, total: result.total });
-      return;
-    }
-
     // Parse and validate limit
     let limit = parseInt((req.query.limit as string) || "100", 10);
     if (isNaN(limit) || limit < 0) {
@@ -110,6 +101,35 @@ app.get("/api/documents/list", (req, res) => {
     });
   }
 });
+
+// Browse folder endpoint - returns folders and paginated files at a path
+app.get("/api/documents/browse", (req, res) => {
+  try {
+    const path = (req.query.path as string) || "";
+
+    // Parse and validate limit
+    let limit = parseInt((req.query.limit as string) || "50", 10);
+    if (isNaN(limit) || limit < 0) {
+      limit = 50;
+    } else if (limit > 100) {
+      limit = 100;
+    }
+
+    // Parse and validate offset
+    let offset = parseInt((req.query.offset as string) || "0", 10);
+    if (isNaN(offset) || offset < 0) {
+      offset = 0;
+    }
+
+    const result = browseFolder({ path, limit, offset });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Failed to browse folder",
+    });
+  }
+});
+
 app.get("/api/documents/download", (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;

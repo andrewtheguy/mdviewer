@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Pagination } from "@/components/Pagination";
 
 export interface RecentFile {
   key: string;
@@ -21,6 +22,9 @@ interface RecentFilesProps {
   onDownload: (key: string) => void;
   onNavigateToFolder: (path: string) => void;
   onClose: () => void;
+  onLoadMore: () => void;
+  hasMore: boolean;
+  loadingMore: boolean;
 }
 
 function formatBytes(bytes: number): string {
@@ -59,6 +63,9 @@ export function RecentFiles({
   onDownload,
   onNavigateToFolder,
   onClose,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: RecentFilesProps) {
 
   if (loading) {
@@ -200,6 +207,14 @@ export function RecentFiles({
           </tbody>
         </table>
       </div>
+
+      <Pagination
+        current={files.length}
+        total={totalFiles}
+        loading={loadingMore}
+        hasMore={hasMore}
+        onLoadMore={onLoadMore}
+      />
     </div>
   );
 }

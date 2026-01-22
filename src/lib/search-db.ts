@@ -403,7 +403,6 @@ export function getStats(): IndexStats {
 export interface ListDocumentsOptions {
   limit?: number;
   offset?: number;
-  all?: boolean;
 }
 
 export interface ListDocumentsResult {
@@ -420,18 +419,6 @@ export function listDocuments(options: ListDocumentsOptions = {}): ListDocuments
   const countResult = countStmt.get() as { count: number };
   const total = countResult.count;
 
-  // If all=true, return all documents without pagination
-  if (options.all) {
-    const stmt = database.prepare(`
-      SELECT key, size, last_modified_iso as lastModified
-      FROM documents
-      ORDER BY key ASC
-    `);
-    const objects = stmt.all() as Array<{ key: string; size: number; lastModified: string | null }>;
-    return { objects, total };
-  }
-
-  // Otherwise use pagination
   const limit = validatePaginationParam(options.limit, 100, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
@@ -526,4 +513,77 @@ export function getDocument(key: string): DocumentRecord | null {
   `);
   const result = stmt.get(key) as DocumentRecord | undefined;
   return result ?? null;
+}
+
+export interface BrowseFolderOptions {
+  path: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface BrowseFolderResult {
+  folders: string[];
+  files: Array<{ key: string; size: number; lastModified: string | null }>;
+  totalFolders: number;
+  totalFiles: number;
+}
+
+// Browse a folder - returns subfolders and paginated files at the given path
+export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
+  const database = getDatabase();
+  const { path } = options;
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
+  // Build prefix for path matching
+  // If path is empty (root), we match all keys
+  // If path is "foo", we match "foo/..." but not "foobar/..."
+  const prefix = path ? path + "/" : "";
+
+  // Get all unique immediate subfolders and files at this path level
+  // We need to query all documents under this prefix and then parse them
+  const allDocsStmt = database.prepare(`
+    SELECT key, size, last_modified_iso as lastModified
+    FROM documents
+    WHERE key LIKE ? || '%'
+    ORDER BY key ASC
+  `);
+
+  const allDocs = allDocsStmt.all(prefix) as Array<{
+    key: string;
+    size: number;
+    lastModified: string | null;
+  }>;
+
+  const foldersSet = new Set<string>();
+  const filesAtLevel: Array<{ key: string; size: number; lastModified: string | null }> = [];
+
+  for (const doc of allDocs) {
+    // Get the part of the key after the prefix
+    const remainder = doc.key.slice(prefix.length);
+    if (remainder === "") continue; // Skip if exact match (the folder itself)
+
+    const slashIndex = remainder.indexOf("/");
+    if (slashIndex === -1) {
+      // It's a file at this level
+      filesAtLevel.push(doc);
+    } else {
+      // It's a folder - extract first path segment
+      foldersSet.add(remainder.slice(0, slashIndex));
+    }
+  }
+
+  const folders = Array.from(foldersSet).sort();
+  const totalFolders = folders.length;
+  const totalFiles = filesAtLevel.length;
+
+  // Paginate files only (folders are usually few, so we return all)
+  const paginatedFiles = filesAtLevel.slice(offset, offset + limit);
+
+  return {
+    folders,
+    files: paginatedFiles,
+    totalFolders,
+    totalFiles,
+  };
 }
