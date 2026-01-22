@@ -1,5 +1,4 @@
 import express from "express";
-import multer from "multer";
 import path from "path";
 import { s3 } from "./lib/s3";
 import { search } from "./lib/search-db";
@@ -15,7 +14,6 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 const isProduction = process.env.NODE_ENV === "production";
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
 
 app.use(express.json());
 
@@ -35,31 +33,6 @@ app.get("/api/s3/list", async (_req, res) => {
     });
   }
 });
-
-app.post("/api/s3/upload", upload.single("file"), async (req, res) => {
-  try {
-    const file = req.file;
-
-    if (!file) {
-      res.status(400).json({ error: "No file provided" });
-      return;
-    }
-
-    const key = file.originalname;
-    await s3.write(key, file.buffer);
-
-    res.json({
-      success: true,
-      key,
-      size: file.size,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to upload file",
-    });
-  }
-});
-
 app.get("/api/s3/download", async (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;
@@ -186,7 +159,7 @@ app.get("/api/s3/recent", async (req, res) => {
       path: obj.key?.split("/").slice(0, -1).join("/") || "",
       size: obj.size || 0,
       lastModified: obj.lastModified ? new Date(obj.lastModified).getTime() : 0,
-      lastModifiedISO: obj.lastModified || new Date().toISOString(),
+      lastModifiedISO: obj.lastModified ?? null,
     }));
 
     res.json({
@@ -266,8 +239,12 @@ if (isProduction) {
   const distPath = path.join(import.meta.dirname, "../dist");
   app.use(express.static(distPath));
 
-  // Fallback to index.html for SPA routing
-  app.get("*", (_req, res) => {
+  // Fallback to index.html for SPA routing, but return 404 for unknown API routes
+  app.get("*", (req, res) => {
+    if (req.path.startsWith("/api")) {
+      res.status(404).json({ error: "Not Found" });
+      return;
+    }
     res.sendFile(path.join(distPath, "index.html"));
   });
 }

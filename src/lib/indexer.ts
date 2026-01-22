@@ -63,7 +63,7 @@ export async function indexFile(
       contentPreview,
     };
 
-    addDocument(document);
+    await addDocument(document);
     return true;
   } catch (error) {
     console.error(`Failed to index file ${key}:`, error);
@@ -73,7 +73,7 @@ export async function indexFile(
 
 export async function removeFromIndex(key: string): Promise<boolean> {
   try {
-    deleteDocument(key);
+    await deleteDocument(key);
     return true;
   } catch (error) {
     console.error(`Failed to remove ${key} from index:`, error);
@@ -100,7 +100,7 @@ export async function fullReindex(): Promise<ReindexResult> {
 
   try {
     console.log("[Indexer] Deleting all documents...");
-    deleteAllDocuments();
+    await deleteAllDocuments();
 
     console.log("[Indexer] Listing S3 files...");
     const listResult = await s3.list();
@@ -163,7 +163,7 @@ export async function fullReindex(): Promise<ReindexResult> {
 
     console.log(`[Indexer] Adding ${documents.length} documents to index...`);
     if (documents.length > 0) {
-      addDocuments(documents);
+      await addDocuments(documents);
       result.indexed = documents.length;
     }
 
