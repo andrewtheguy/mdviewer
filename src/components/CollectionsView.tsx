@@ -4,13 +4,11 @@ import { Eye, Download, FileText, ChevronLeft, FolderOpen, BookOpen } from "luci
 
 export interface CollectionSummary {
   name: string;
-  count: number;
   latestCreationDate: string | null;
 }
 
 export interface CollectionTitle {
   title: string;  // "Untitled" for null titles
-  count: number;
   latestCreationDate: string | null;
 }
 
@@ -149,8 +147,7 @@ export function CollectionsView({
             <thead className="bg-muted/50">
               <tr>
                 <th className="text-left p-3 font-medium">Collection</th>
-                <th className="text-left p-3 font-medium hidden sm:table-cell">Latest</th>
-                <th className="text-right p-3 font-medium">Transcripts</th>
+                <th className="text-right p-3 font-medium">Latest</th>
               </tr>
             </thead>
             <tbody>
@@ -166,13 +163,8 @@ export function CollectionsView({
                       <span className="font-medium break-all">{collection.name}</span>
                     </div>
                   </td>
-                  <td className="p-3 hidden sm:table-cell text-muted-foreground">
+                  <td className="p-3 text-right text-muted-foreground">
                     {formatISODate(collection.latestCreationDate)}
-                  </td>
-                  <td className="p-3 text-right">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-muted">
-                      {collection.count}
-                    </span>
                   </td>
                 </tr>
               ))}
@@ -224,7 +216,6 @@ export function CollectionsView({
           <div className="h-4 w-px bg-border" />
           <div className="text-sm">
             <span className="font-medium">{selectedCollection}</span>
-            <span className="text-muted-foreground ml-2">({totalTitles} titles)</span>
           </div>
         </div>
 
@@ -233,8 +224,7 @@ export function CollectionsView({
             <thead className="bg-muted/50">
               <tr>
                 <th className="text-left p-3 font-medium">Title</th>
-                <th className="text-left p-3 font-medium hidden sm:table-cell">Latest</th>
-                <th className="text-right p-3 font-medium">Files</th>
+                <th className="text-right p-3 font-medium">Latest</th>
               </tr>
             </thead>
             <tbody>
@@ -252,13 +242,8 @@ export function CollectionsView({
                       </span>
                     </div>
                   </td>
-                  <td className="p-3 hidden sm:table-cell text-muted-foreground">
+                  <td className="p-3 text-right text-muted-foreground">
                     {formatISODate(titleItem.latestCreationDate)}
-                  </td>
-                  <td className="p-3 text-right">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-muted">
-                      {titleItem.count}
-                    </span>
                   </td>
                 </tr>
               ))}
@@ -293,7 +278,6 @@ export function CollectionsView({
           <span className={`font-medium ${selectedTitle === "Untitled" ? "text-muted-foreground italic" : ""}`}>
             {selectedTitle}
           </span>
-          <span className="text-muted-foreground ml-2">({totalTranscripts} files)</span>
         </div>
       </div>
 
@@ -308,7 +292,7 @@ export function CollectionsView({
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left p-3 font-medium">File</th>
-                  <th className="text-left p-3 font-medium hidden sm:table-cell">Created</th>
+                  <th className="text-left p-3 font-medium">Created</th>
                   <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>
@@ -320,26 +304,21 @@ export function CollectionsView({
                     onClick={() => onPreview(transcript.key)}
                   >
                     <td className="p-3">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <FileText className="size-4 shrink-0" />
-                          <span className="break-all font-medium">
-                            {transcript.name}
-                          </span>
-                          <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
-                            ({formatBytes(transcript.size)})
-                          </span>
-                        </div>
-                        <div className="sm:hidden text-xs text-muted-foreground">
-                          {transcript.creationDate ? getRelativeTime(transcript.creationDate) : "Unknown"} ({formatBytes(transcript.size)})
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <FileText className="size-4 shrink-0" />
+                        <span className="break-all font-medium">
+                          {transcript.name}
+                        </span>
+                        <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
+                          ({formatBytes(transcript.size)})
+                        </span>
                       </div>
                     </td>
-                    <td className="p-3 hidden sm:table-cell">
+                    <td className="p-3">
                       {transcript.creationDate ? (
                         <div className="flex flex-col gap-0.5">
                           <span className="text-sm">{getRelativeTime(transcript.creationDate)}</span>
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-xs text-muted-foreground hidden sm:block">
                             {formatDate(transcript.creationDate)}
                           </span>
                         </div>

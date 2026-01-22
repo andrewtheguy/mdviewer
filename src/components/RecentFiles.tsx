@@ -114,7 +114,7 @@ export function RecentFiles({
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left p-3 font-medium">File</th>
-              <th className="text-left p-3 font-medium hidden sm:table-cell">Created</th>
+              <th className="text-left p-3 font-medium">Created</th>
               <th className="text-right p-3 font-medium">Actions</th>
             </tr>
           </thead>
@@ -148,15 +148,12 @@ export function RecentFiles({
                           {file.collection}
                         </span>
                       )}
-                      <div className="sm:hidden mt-1 text-xs text-muted-foreground">
-                        {getRelativeTime(displayDate)} ({formatBytes(file.size)})
-                      </div>
                     </div>
                   </td>
-                  <td className="p-3 hidden sm:table-cell">
+                  <td className="p-3">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-sm">{getRelativeTime(displayDate)}</span>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-xs text-muted-foreground hidden sm:block">
                         {formatDate(displayDate)}
                       </span>
                     </div>
