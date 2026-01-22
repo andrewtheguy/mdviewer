@@ -289,7 +289,7 @@ export function CollectionsView({
         <div className="h-4 w-px bg-border" />
         <div className="text-sm">
           <span className="text-muted-foreground">{selectedCollection}</span>
-          <span className="mx-1">/</span>
+          <span className="mx-1">›</span>
           <span className={`font-medium ${selectedTitle === "Untitled" ? "text-muted-foreground italic" : ""}`}>
             {selectedTitle}
           </span>
