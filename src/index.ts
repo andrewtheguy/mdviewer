@@ -1,7 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts } from "./lib/search-db";
-import { getIndexStats } from "./lib/indexer";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats } from "./lib/search-db";
 
 // Validate and decode base64 URL-safe encoded key
 // Throws Error if input contains invalid base64url characters
@@ -291,11 +290,13 @@ app.get("/api/search/reindex/status", async (_req, res) => {
 
 app.get("/api/search/stats", (_req, res) => {
   try {
-    const stats = getIndexStats();
+    const stats = getStats();
     res.json(stats);
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to get stats",
+    console.error("Failed to get index stats:", error);
+    res.json({
+      numberOfDocuments: 0,
+      isIndexing: false,
     });
   }
 });
