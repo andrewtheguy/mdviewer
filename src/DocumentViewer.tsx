@@ -91,6 +91,19 @@ function getPreviewKeyFromURL(): string | null {
   return null;
 }
 
+// Get return URL from query params (for preview back navigation)
+function getReturnUrlFromURL(): string {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("from") || "/collections";
+}
+
+// Get current page URL (pathname + search, excluding 'from' param)
+function getCurrentPageUrl(): string {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("from");
+  return url.pathname + url.search;
+}
+
 const PAGE_SIZE = 50;
 
 export function DocumentViewer() {
@@ -210,17 +223,23 @@ export function DocumentViewer() {
   };
 
   const closePreview = useCallback(() => {
-    // Go back to collections view
-    window.history.pushState({}, "", "/collections");
+    // Navigate to the return URL from query param, or fallback to /collections
+    const returnUrl = getReturnUrlFromURL();
+    window.history.pushState({}, "", returnUrl);
     setPreviewFile(null);
     setPreviewContent("");
     setPreviewMetadata(null);
     setPreviewLoading(false);
+
+    // Trigger state updates based on return URL
+    window.dispatchEvent(new PopStateEvent("popstate"));
   }, []);
 
   const handlePreview = (key: string) => {
     const encoded = encodeKey(key);
-    window.history.pushState({}, "", `/preview/${encoded}`);
+    const currentUrl = getCurrentPageUrl();
+    const previewUrl = `/preview/${encoded}?from=${encodeURIComponent(currentUrl)}`;
+    window.history.pushState({}, "", previewUrl);
     setPreviewFile(key);
   };
 
