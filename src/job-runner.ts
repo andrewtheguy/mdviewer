@@ -76,11 +76,12 @@ function getPath(key: string): string {
 
 // Timeout wrapper for async operations
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
   return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms)
-    ),
+    promise.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms);
+    }),
   ]);
 }
 
@@ -300,35 +301,24 @@ async function runReindex() {
       ...result,
       completedAt: new Date().toISOString(),
     };
-  } finally {
-    status.running = false;
-    status.progress = { current: 0, total: 0 };
   }
 }
 
 const app = express();
 
 app.post("/reindex", (_req, res) => {
+  // Atomic check-and-set (synchronous operations are atomic in Node.js single-threaded event loop)
   if (status.running) {
     res.status(409).json({ error: "Reindex already in progress" });
     return;
   }
-
   status.running = true;
   status.progress = { current: 0, total: 0 };
 
   // Run reindex in background (don't await)
-  runReindex().catch((err) => {
-    console.error("[JobRunner] Unexpected error in runReindex:", err);
+  runReindex().finally(() => {
     status.running = false;
-    status.lastResult = {
-      success: false,
-      total: 0,
-      indexed: 0,
-      skipped: 0,
-      errors: 1,
-      completedAt: new Date().toISOString(),
-    };
+    status.progress = { current: 0, total: 0 };
   });
 
   res.json({
