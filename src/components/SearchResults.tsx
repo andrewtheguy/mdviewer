@@ -82,7 +82,7 @@ export function SearchResults({
           <thead className="bg-muted/50">
             <tr>
               <th className="text-left p-3 font-medium">File</th>
-              <th className="text-left p-3 font-medium hidden sm:table-cell">Match</th>
+              <th className="text-left p-3 font-medium">Match</th>
               <th className="text-right p-3 font-medium">Actions</th>
             </tr>
           </thead>
@@ -114,22 +114,14 @@ export function SearchResults({
                           {hit.collection}
                         </span>
                       )}
-                      {hit.path && (
+                      {hit.title && (
                         <span className="text-xs text-muted-foreground break-all">
-                          /{hit.path}
+                          {hit.title}
                         </span>
                       )}
-                      <div className="sm:hidden mt-1 text-xs text-muted-foreground">
-                        <span className="block mb-1">({formatBytes(hit.size)})</span>
-                        {hit._formatted?.content ? (
-                          <HighlightedText html={hit._formatted.content} />
-                        ) : (
-                          hit.contentPreview
-                        )}
-                      </div>
                     </div>
                   </td>
-                  <td className="p-3 hidden sm:table-cell">
+                  <td className="p-3">
                     <div className="text-sm text-muted-foreground">
                       {hit._formatted?.content ? (
                         <HighlightedText html={hit._formatted.content} />

@@ -163,8 +163,10 @@ function initializeSchema(database: Database.Database): void {
     ${TRIGGER_DEFINITIONS}
 
     CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-    CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
     CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
+    CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
   `);
 }
 
@@ -376,8 +378,10 @@ export function deleteAllDocuments(): void {
       ${TRIGGER_DEFINITIONS}
 
       CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-      CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
       CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
+      CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
     `);
   });
 
@@ -637,7 +641,6 @@ export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
 // Collection interfaces
 export interface CollectionSummary {
   name: string;
-  count: number;
   latestCreationDate: string | null;
 }
 
@@ -661,13 +664,13 @@ export interface CollectionsResult {
   total: number;
 }
 
-// Get all collections with counts (with pagination)
+// Get all collections (with pagination)
 export function getCollections(options: { limit?: number; offset?: number } = {}): CollectionsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
-  // Get total count of distinct collections
+  // Get total count of distinct collections for pagination
   const countStmt = database.prepare(`
     SELECT COUNT(DISTINCT collection) as count
     FROM documents
@@ -679,7 +682,6 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
   const stmt = database.prepare(`
     SELECT
       collection as name,
-      COUNT(*) as count,
       MAX(creation_date_iso) as latestCreationDate
     FROM documents
     WHERE collection IS NOT NULL
@@ -688,11 +690,7 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
     LIMIT ? OFFSET ?
   `);
 
-  const rows = stmt.all(limit, offset) as Array<{
-    name: string;
-    count: number;
-    latestCreationDate: string | null;
-  }>;
+  const rows = stmt.all(limit, offset) as CollectionSummary[];
 
   return { collections: rows, total };
 }
@@ -700,7 +698,6 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
 // Collection title interfaces
 export interface CollectionTitle {
   title: string;  // "Untitled" for null titles
-  count: number;
   latestCreationDate: string | null;
 }
 
@@ -719,7 +716,7 @@ export function getCollectionTitles(
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
-  // Get total count of distinct titles in this collection
+  // Get total count of distinct titles in this collection for pagination
   const countStmt = database.prepare(`
     SELECT COUNT(DISTINCT COALESCE(title, '__NO_TITLE_e4f7b2c9__')) as count
     FROM documents
@@ -732,7 +729,6 @@ export function getCollectionTitles(
   const stmt = database.prepare(`
     SELECT
       COALESCE(title, '__NO_TITLE_e4f7b2c9__') as title,
-      COUNT(*) as count,
       MAX(creation_date_iso) as latestCreationDate
     FROM documents
     WHERE collection = ?
