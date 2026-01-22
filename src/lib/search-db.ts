@@ -165,6 +165,8 @@ function initializeSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
     CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
     CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
+    CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
   `);
 }
 
@@ -378,6 +380,8 @@ export function deleteAllDocuments(): void {
       CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
       CREATE INDEX IF NOT EXISTS idx_documents_collection ON documents(collection);
       CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+      CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
+      CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
     `);
   });
 
