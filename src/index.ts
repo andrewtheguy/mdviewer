@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats, SCHEMA_VERSION, getSchemaVersion } from "./lib/search-db";
 
 // Validate and decode base64 URL-safe encoded key
 // Throws Error if input contains invalid base64url characters
@@ -16,6 +16,19 @@ const JOB_RUNNER_URL = process.env.JOB_RUNNER_URL || "http://localhost:3001";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const isProduction = process.env.NODE_ENV === "production";
 const DEFAULT_FETCH_TIMEOUT_MS = 10000;
+
+// Schema version check - block API until reindex completes if mismatch
+let needsReindex = false;
+
+function checkSchemaVersion(): void {
+  const dbVersion = getSchemaVersion();
+  needsReindex = dbVersion !== SCHEMA_VERSION;
+  if (needsReindex) {
+    console.log(`[Server] Schema version mismatch: DB has ${dbVersion}, expected ${SCHEMA_VERSION}. API blocked until reindex completes.`);
+  } else {
+    console.log(`[Server] Schema version OK: ${SCHEMA_VERSION}`);
+  }
+}
 
 // Parse and validate pagination parameters from query string
 function parsePagination(
@@ -96,6 +109,28 @@ async function fetchWithTimeout<T = unknown>(
 const app = express();
 
 app.use(express.json());
+
+// Check schema version on startup
+checkSchemaVersion();
+
+// Middleware to block API routes when reindex is required
+// Allows reindex endpoints through so users can trigger the reindex
+app.use("/api", (req, res, next) => {
+  // Re-check schema version on each blocked request (clears needsReindex when version matches)
+  if (needsReindex) {
+    const dbVersion = getSchemaVersion();
+    if (dbVersion === SCHEMA_VERSION) {
+      needsReindex = false;
+      console.log("[Server] Schema version now matches, API unblocked");
+    }
+  }
+
+  if (needsReindex && !req.path.startsWith("/search/reindex")) {
+    res.status(503).json({ error: "Reindex required", needsReindex: true });
+    return;
+  }
+  next();
+});
 
 // Document API Routes (served from database)
 app.get("/api/documents/list", (req, res) => {

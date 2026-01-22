@@ -1,6 +1,10 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { s3 } from "./s3";
+
+// Schema version - increment when schema or indexes change
+export const SCHEMA_VERSION = 1;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -57,6 +61,14 @@ const FTS_TABLE_DEFINITION = `
     content='documents',
     content_rowid='rowid',
     tokenize='porter unicode61'
+  );
+`;
+
+// Schema version table - preserved across reindexes
+const SCHEMA_VERSION_TABLE = `
+  CREATE TABLE IF NOT EXISTS schema_version (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version INTEGER NOT NULL
   );
 `;
 
@@ -154,6 +166,9 @@ function registerExitHandlers(): void {
 registerExitHandlers();
 
 function initializeSchema(database: Database.Database): void {
+  // Create schema_version table first (preserved across reindexes)
+  database.exec(SCHEMA_VERSION_TABLE);
+
   // Create tables and triggers only if they don't exist (preserves data across restarts)
   database.exec(`
     ${DOCUMENTS_TABLE_DEFINITION}
@@ -357,7 +372,9 @@ export function addDocuments(docs: S3FileDocument[]): void {
   insertMany(docs);
 }
 
-export function deleteAllDocuments(): void {
+// Clear all documents (private - used by runReindex)
+// Does NOT drop schema_version table
+function clearDocuments(): void {
   const database = getDatabase();
 
   // Drop triggers, FTS table, and truncate documents table to avoid
@@ -800,4 +817,331 @@ export function getCollectionTranscripts(
     collection,
     total,
   };
+}
+
+// Schema version functions
+export function getSchemaVersion(): number | null {
+  const database = getDatabase();
+  const stmt = database.prepare("SELECT version FROM schema_version WHERE id = 1");
+  const result = stmt.get() as { version: number } | undefined;
+  return result?.version ?? null;
+}
+
+export function setSchemaVersion(version: number): void {
+  const database = getDatabase();
+  database.prepare(`
+    INSERT INTO schema_version (id, version) VALUES (1, ?)
+    ON CONFLICT(id) DO UPDATE SET version = excluded.version
+  `).run(version);
+}
+
+// Reindex status tracking
+export interface ReindexStatus {
+  running: boolean;
+  progress: {
+    current: number;
+    total: number;
+  };
+  lastResult: {
+    success: boolean;
+    total: number;
+    indexed: number;
+    skipped: number;
+    errors: number;
+    completedAt: string;
+  } | null;
+}
+
+const reindexStatus: ReindexStatus = {
+  running: false,
+  progress: { current: 0, total: 0 },
+  lastResult: null,
+};
+
+export function getReindexStatus(): ReindexStatus {
+  return { ...reindexStatus };
+}
+
+// Metadata interface for folder metadata.json files
+interface FolderMetadata {
+  creation_date: string;  // ISO 8601
+  version: number;
+  type: string;           // "transcribefoldermetadata"
+  collection: string;
+  title: string;
+}
+
+const INDEXABLE_EXTENSIONS = ["txt", "md"];
+const CONTENT_PREVIEW_LENGTH = 500;
+const INDEX_BATCH_SIZE = 100;
+const S3_FETCH_TIMEOUT_MS = 30000; // 30 seconds per file
+
+function isIndexable(key: string): boolean {
+  const ext = key.toLowerCase().split(".").pop();
+  return ext ? INDEXABLE_EXTENSIONS.includes(ext) : false;
+}
+
+function getExtension(key: string): string {
+  return key.toLowerCase().split(".").pop() || "";
+}
+
+function getBasename(key: string): string {
+  return key.split("/").pop() || key;
+}
+
+function getPath(key: string): string {
+  const parts = key.split("/");
+  if (parts.length <= 1) return "";
+  return parts.slice(0, -1).join("/");
+}
+
+// Timeout wrapper for async operations
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms);
+    }),
+  ]);
+}
+
+// Check if an error indicates S3 "not found" (NoSuchKey)
+function isS3NotFoundError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const err = error as Record<string, unknown>;
+  // AWS SDK v3 uses name or code for error identification
+  return err.name === "NoSuchKey" || err.code === "NoSuchKey";
+}
+
+// Fetch and parse metadata.json from a folder
+async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata | null> {
+  const metadataKey = folderPath ? `${folderPath}/metadata.json` : "metadata.json";
+  try {
+    const content = await withTimeout(s3.file(metadataKey).text(), S3_FETCH_TIMEOUT_MS, `fetch ${metadataKey}`);
+    const metadata = JSON.parse(content) as Record<string, unknown>;
+
+    // Validate type
+    if (metadata.type !== "transcribefoldermetadata") {
+      console.warn(`[Reindex] Invalid metadata type at ${metadataKey}: expected "transcribefoldermetadata", got "${metadata.type}"`);
+      return null;
+    }
+
+    // Validate required fields
+    if (typeof metadata.collection !== "string" || typeof metadata.title !== "string") {
+      console.warn(`[Reindex] Missing collection or title in metadata at ${metadataKey}`);
+      return null;
+    }
+
+    return {
+      creation_date: typeof metadata.creation_date === "string" ? metadata.creation_date : "",
+      version: typeof metadata.version === "number" ? metadata.version : 0,
+      type: metadata.type as string,
+      collection: metadata.collection as string,
+      title: metadata.title as string,
+    };
+  } catch (error) {
+    // Silently return null for "not found" errors
+    if (isS3NotFoundError(error)) {
+      return null;
+    }
+    // Distinguish JSON parse errors from fetch errors
+    if (error instanceof SyntaxError) {
+      console.warn(`[Reindex] Failed to parse metadata JSON at ${metadataKey}:`, error.message);
+    } else {
+      console.warn(`[Reindex] Failed to fetch metadata at ${metadataKey}:`, error);
+    }
+    return null;
+  }
+}
+
+export async function runReindex(): Promise<void> {
+  const result = {
+    total: 0,
+    indexed: 0,
+    skipped: 0,
+    errors: 0,
+  };
+
+  try {
+    console.log("[Reindex] Deleting all documents...");
+    clearDocuments();
+
+    console.log("[Reindex] Listing S3 files...");
+    const listResult = await s3.list();
+    const objects = listResult.contents || [];
+
+    result.total = objects.length;
+    reindexStatus.progress.total = objects.length;
+
+    const indexableObjects = objects.filter(
+      (obj) => obj.key && isIndexable(obj.key)
+    );
+    result.skipped = objects.length - indexableObjects.length;
+    console.log(
+      `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} indexable`
+    );
+
+    // Group files by folder to fetch metadata once per folder
+    const filesByFolder = new Map<string, typeof indexableObjects>();
+    for (const obj of indexableObjects) {
+      const folderPath = getPath(obj.key!);
+      if (!filesByFolder.has(folderPath)) {
+        filesByFolder.set(folderPath, []);
+      }
+      filesByFolder.get(folderPath)!.push(obj);
+    }
+
+    console.log(`[Reindex] Found ${filesByFolder.size} unique folders`);
+
+    // Cache for folder metadata
+    const folderMetadataCache = new Map<string, FolderMetadata | null>();
+
+    // Fetch metadata for all folders in parallel (with concurrency limit)
+    const folderPaths = Array.from(filesByFolder.keys());
+    const METADATA_FETCH_CONCURRENCY = 10;
+    for (let i = 0; i < folderPaths.length; i += METADATA_FETCH_CONCURRENCY) {
+      const batch = folderPaths.slice(i, i + METADATA_FETCH_CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (folderPath) => {
+          const metadata = await fetchFolderMetadata(folderPath);
+          return { folderPath, metadata };
+        })
+      );
+      for (const { folderPath, metadata } of results) {
+        folderMetadataCache.set(folderPath, metadata);
+      }
+    }
+
+    const foldersWithMetadata = Array.from(folderMetadataCache.values()).filter(m => m !== null).length;
+    console.log(`[Reindex] Found metadata.json in ${foldersWithMetadata}/${filesByFolder.size} folders`);
+
+    let pendingDocuments: S3FileDocument[] = [];
+    let processedCount = 0;
+
+    for (let i = 0; i < indexableObjects.length; i++) {
+      const obj = indexableObjects[i]!;
+      const key = obj.key!;
+      const folderPath = getPath(key);
+
+      try {
+        const content = await withTimeout(
+          s3.file(key).text(),
+          S3_FETCH_TIMEOUT_MS,
+          `fetch ${key}`
+        );
+        const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
+        const lastModified = obj.lastModified
+          ? new Date(obj.lastModified)
+          : new Date();
+
+        // Get metadata for this file's folder
+        const metadata = folderMetadataCache.get(folderPath) ?? null;
+
+        // Determine creation date - use metadata if available and valid, otherwise S3 lastModified
+        let creationDate: Date;
+        let creationDateISO: string;
+        if (metadata?.creation_date) {
+          const parsed = new Date(metadata.creation_date);
+          if (!isNaN(parsed.getTime())) {
+            creationDate = parsed;
+            creationDateISO = metadata.creation_date;
+          } else {
+            console.warn(`[Reindex] Invalid metadata.creation_date "${metadata.creation_date}" for ${key}, using lastModified (${lastModified.toISOString()}) as fallback`);
+            creationDate = lastModified;
+            creationDateISO = lastModified.toISOString();
+          }
+        } else {
+          creationDate = lastModified;
+          creationDateISO = lastModified.toISOString();
+        }
+
+        pendingDocuments.push({
+          id: keyToId(key),
+          key,
+          name: getBasename(key),
+          extension: getExtension(key),
+          path: folderPath,
+          size: obj.size ?? 0,
+          lastModified: lastModified.getTime(),
+          lastModifiedISO: lastModified.toISOString(),
+          content,
+          contentPreview,
+          collection: metadata?.collection ?? null,
+          title: metadata?.title ?? null,
+          creationDate: creationDate.getTime(),
+          creationDateISO,
+          hasMetadata: metadata !== null,
+        });
+      } catch (err) {
+        console.error(`[Reindex] Failed to fetch "${key}":`, err);
+        result.errors++;
+      }
+
+      if (pendingDocuments.length >= INDEX_BATCH_SIZE) {
+        try {
+          addDocuments(pendingDocuments);
+          result.indexed += pendingDocuments.length;
+        } catch (err) {
+          console.error("[Reindex] Failed to add batch to SQLite:", err);
+          result.errors += pendingDocuments.length;
+        }
+        pendingDocuments = [];
+      }
+
+      processedCount++;
+      reindexStatus.progress.current = processedCount;
+      if (processedCount % 100 === 0 || processedCount === indexableObjects.length) {
+        console.log(
+          `[Reindex] Processed ${processedCount}/${indexableObjects.length} files (indexed: ${result.indexed})...`
+        );
+      }
+    }
+
+    if (pendingDocuments.length > 0) {
+      console.log(`[Reindex] Adding final ${pendingDocuments.length} documents...`);
+      try {
+        addDocuments(pendingDocuments);
+        result.indexed += pendingDocuments.length;
+      } catch (err) {
+        console.error("[Reindex] Failed to add final batch to SQLite:", err);
+        result.errors += pendingDocuments.length;
+      }
+    }
+
+    // Update schema version on successful reindex
+    setSchemaVersion(SCHEMA_VERSION);
+
+    console.log("[Reindex] Reindex completed successfully!", result);
+    reindexStatus.lastResult = {
+      success: true,
+      ...result,
+      completedAt: new Date().toISOString(),
+    };
+  } catch (error) {
+    console.error("[Reindex] Reindex error:", error);
+    reindexStatus.lastResult = {
+      success: false,
+      ...result,
+      completedAt: new Date().toISOString(),
+    };
+  }
+}
+
+// Start a reindex job (returns immediately, runs in background)
+export function startReindex(): { success: boolean; message: string } {
+  if (reindexStatus.running) {
+    return { success: false, message: "Reindex already in progress" };
+  }
+
+  reindexStatus.running = true;
+  reindexStatus.progress = { current: 0, total: 0 };
+
+  // Run reindex in background (don't await)
+  runReindex().finally(() => {
+    reindexStatus.running = false;
+    reindexStatus.progress = { current: 0, total: 0 };
+  });
+
+  return { success: true, message: "Reindex started" };
 }
