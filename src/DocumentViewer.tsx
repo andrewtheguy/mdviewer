@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
 import { Pagination } from "@/components/Pagination";
-import { Eye, Download, FileText, Folder, ChevronLeft, Loader2, House, Clock, RotateCw, RefreshCw } from "lucide-react";
+import { Eye, Download, FileText, Folder, ChevronLeft, Loader2, House, Clock, RotateCw, RefreshCw, FolderOpen } from "lucide-react";
 
 // Encode key as base64 URL-safe
 function encodeKey(key: string): string {
@@ -656,7 +656,7 @@ export function DocumentViewer() {
               }}
               className="gap-2 h-8"
             >
-              <House className="size-4" />
+              <FolderOpen className="size-4" />
               <span>Browse</span>
             </Button>
 
@@ -712,27 +712,31 @@ export function DocumentViewer() {
         ) : (
           <>
         {/* Breadcrumb Navigation */}
-        <div className="flex items-center gap-1 text-sm flex-wrap">
-          <button
+        <div className="flex items-center gap-1.5 text-sm flex-wrap px-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
             onClick={() => navigateToFolder("")}
-            className="hover:text-primary hover:underline"
+            title="Go to root"
           >
-            (root)
-          </button>
+            <House className="size-4" />
+            <span className="sr-only">Root</span>
+          </Button>
           {pathSegments.map((segment, index) => {
             const pathToHere = pathSegments.slice(0, index + 1).join("/");
             return (
-              <span key={pathToHere} className="flex items-center gap-1">
-                <span className="text-muted-foreground">&gt;</span>
+              <div key={pathToHere} className="flex items-center gap-1.5">
+                <span className="text-muted-foreground/60">/</span>
                 <button
                   type="button"
                   onClick={() => navigateToFolder(pathToHere)}
-                  className="hover:text-primary hover:underline max-w-[200px] truncate sm:max-w-none"
+                  className="hover:text-primary hover:bg-muted/50 px-1.5 py-0.5 rounded transition-colors max-w-[150px] truncate sm:max-w-none font-medium"
                   title={segment}
                 >
                   {segment}
                 </button>
-              </span>
+              </div>
             );
           })}
         </div>
