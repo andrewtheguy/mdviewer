@@ -229,8 +229,9 @@ export function useCollections(onError: (error: string | null) => void): UseColl
       setCollectionTranscripts([]);
       setCollectionTotalTranscripts(0);
       setCollectionCurrentPage(1);
+      loadCollectionTitles(selectedCollection, 1);
     }
-  }, [selectedCollection]);
+  }, [selectedCollection, loadCollectionTitles]);
 
   const handleTitlesPageChange = useCallback((page: number) => {
     if (selectedCollection) {
