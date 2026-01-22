@@ -410,7 +410,7 @@ export interface ListDocumentsResult {
   total: number;
 }
 
-// List all documents with pagination (for /api/s3/list)
+// List all documents with pagination (for /api/documents/list)
 export function listDocuments(options: ListDocumentsOptions = {}): ListDocumentsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 100, MAX_LIMIT);
@@ -448,7 +448,7 @@ export interface RecentDocument {
   lastModifiedISO: string | null;
 }
 
-// Get recent documents with pagination/filtering (for /api/s3/recent)
+// Get recent documents with pagination/filtering (for /api/documents/recent)
 export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   files: RecentDocument[];
   totalFiles: number;
@@ -503,7 +503,7 @@ export interface DocumentRecord {
   size: number;
 }
 
-// Get single document by key (for /api/s3/download and /api/s3/preview)
+// Get single document by key (for /api/documents/download and /api/documents/preview)
 export function getDocument(key: string): DocumentRecord | null {
   const database = getDatabase();
   const stmt = database.prepare(`

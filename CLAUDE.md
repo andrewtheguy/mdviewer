@@ -1,8 +1,4 @@
----
-description: Use Node.js 24 for this project.
-globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
----
+no backwards compatibility needed
 
 Default to using Node.js 24.
 

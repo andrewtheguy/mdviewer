@@ -71,8 +71,8 @@ const app = express();
 
 app.use(express.json());
 
-// S3 API Routes (now served from database)
-app.get("/api/s3/list", (req, res) => {
+// Document API Routes (served from database)
+app.get("/api/documents/list", (req, res) => {
   try {
     // Parse and validate limit
     let limit = parseInt((req.query.limit as string) || "100", 10);
@@ -96,7 +96,7 @@ app.get("/api/s3/list", (req, res) => {
     });
   }
 });
-app.get("/api/s3/download", (req, res) => {
+app.get("/api/documents/download", (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;
     if (!encodedKey) {
@@ -131,7 +131,7 @@ app.get("/api/s3/download", (req, res) => {
   }
 });
 
-app.get("/api/s3/preview", (req, res) => {
+app.get("/api/documents/preview", (req, res) => {
   try {
     const encodedKey = req.query.key as string | undefined;
     if (!encodedKey) {
@@ -166,7 +166,7 @@ app.get("/api/s3/preview", (req, res) => {
 });
 
 // Recent files endpoint - returns recently updated .txt and .md files from database
-app.get("/api/s3/recent", (req, res) => {
+app.get("/api/documents/recent", (req, res) => {
   try {
     // Parse and validate limit
     let limit = parseInt((req.query.limit as string) || "50", 10);

@@ -163,7 +163,7 @@ export function S3FileManager() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/s3/list");
+      const response = await fetch("/api/documents/list");
       const data = await response.json();
       if (data.error) {
         setError(data.error);
@@ -201,7 +201,7 @@ export function S3FileManager() {
 
   const handleDownload = async (key: string) => {
     try {
-      const response = await fetch(`/api/s3/download?key=${encodeKey(key)}`);
+      const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
       if (!response.ok) {
         const data = await response.json();
         setError(data.error || "Failed to download file");
@@ -254,7 +254,7 @@ export function S3FileManager() {
     setPreviewContent("");
     setError(null);
     try {
-      const response = await fetch(`/api/s3/preview?key=${encodeKey(key)}`);
+      const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`);
       if (!response.ok) {
         const data = await response.json();
         setPreviewContent(`Error: ${data.error || "Failed to preview file"}`);
@@ -336,7 +336,7 @@ export function S3FileManager() {
   const loadRecentFiles = useCallback(async (typeFilter: FileTypeFilter = "all") => {
     setIsLoadingRecent(true);
     try {
-      const response = await fetch(`/api/s3/recent?limit=50&type=${typeFilter}`);
+      const response = await fetch(`/api/documents/recent?limit=50&type=${typeFilter}`);
       const data = await response.json();
       if (data.error) {
         setError(data.error);
