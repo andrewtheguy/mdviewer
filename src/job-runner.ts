@@ -1,6 +1,11 @@
 import express from "express";
 import { s3 } from "./lib/s3";
-import { getIndex, keyToId, type S3FileDocument } from "./lib/meilisearch";
+import {
+  addDocuments,
+  deleteAllDocuments,
+  keyToId,
+  type S3FileDocument,
+} from "./lib/search-db";
 
 // Global error handlers to prevent silent crashes
 process.on("uncaughtException", (error) => {
@@ -17,7 +22,6 @@ const INDEXABLE_EXTENSIONS = ["txt", "md"];
 const CONTENT_PREVIEW_LENGTH = 500;
 const INDEX_BATCH_SIZE = 100;
 const S3_FETCH_TIMEOUT_MS = 30000; // 30 seconds per file
-const MEILISEARCH_TIMEOUT_MS = 300000; // 5 minutes for batch indexing
 
 // In-memory status
 interface ReindexStatus {
@@ -80,11 +84,8 @@ async function runReindex() {
   };
 
   try {
-    console.log("[JobRunner] Getting index...");
-    const index = await getIndex();
-
     console.log("[JobRunner] Deleting all documents...");
-    await index.deleteAllDocuments();
+    deleteAllDocuments();
 
     console.log("[JobRunner] Listing S3 files...");
     const listResult = await s3.list();
@@ -104,7 +105,7 @@ async function runReindex() {
     let pendingDocuments: S3FileDocument[] = [];
 
     for (let i = 0; i < indexableObjects.length; i++) {
-      const obj = indexableObjects[i];
+      const obj = indexableObjects[i]!;
       const key = obj.key!;
 
       try {
@@ -124,7 +125,7 @@ async function runReindex() {
           name: getBasename(key),
           extension: getExtension(key),
           path: getPath(key),
-          size: obj.size || 0,
+          size: obj.size ?? 0,
           lastModified: lastModified.getTime(),
           lastModifiedISO: lastModified.toISOString(),
           content,
@@ -137,14 +138,10 @@ async function runReindex() {
 
       if (pendingDocuments.length >= INDEX_BATCH_SIZE) {
         try {
-          await withTimeout(
-            index.addDocuments(pendingDocuments),
-            MEILISEARCH_TIMEOUT_MS,
-            "addDocuments"
-          );
+          addDocuments(pendingDocuments);
           result.indexed += pendingDocuments.length;
         } catch (err) {
-          console.error("[JobRunner] Failed to add batch to Meilisearch:", err);
+          console.error("[JobRunner] Failed to add batch to SQLite:", err);
           result.errors += pendingDocuments.length;
         }
         pendingDocuments = [];
@@ -161,14 +158,10 @@ async function runReindex() {
     if (pendingDocuments.length > 0) {
       console.log(`[JobRunner] Adding final ${pendingDocuments.length} documents...`);
       try {
-        await withTimeout(
-          index.addDocuments(pendingDocuments),
-          MEILISEARCH_TIMEOUT_MS,
-          "addDocuments (final)"
-        );
+        addDocuments(pendingDocuments);
         result.indexed += pendingDocuments.length;
       } catch (err) {
-        console.error("[JobRunner] Failed to add final batch to Meilisearch:", err);
+        console.error("[JobRunner] Failed to add final batch to SQLite:", err);
         result.errors += pendingDocuments.length;
       }
     }
