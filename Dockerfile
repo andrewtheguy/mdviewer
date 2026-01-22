@@ -1,20 +1,43 @@
-FROM oven/bun:1 AS base
+# Build stage
+FROM node:24-alpine AS builder
 WORKDIR /app
 
-# Install dependencies
-FROM base AS deps
-COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile
+# Install build dependencies for better-sqlite3
+RUN apk add --no-cache python3 make g++
 
-# Build/run stage
-FROM base AS runner
-WORKDIR /app
+# Copy package files
+COPY package.json package-lock.json ./
 
-COPY --from=deps /app/node_modules ./node_modules
+# Install all dependencies (including devDependencies for build)
+RUN npm ci
+
+# Copy source files
 COPY . .
+
+# Build frontend
+RUN npm run build
+
+# Production stage
+FROM node:24-alpine AS runner
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install build dependencies, compile native modules, then remove build tools
+RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+    && npm ci --omit=dev \
+    && apk del .build-deps
+
+# Copy built frontend from builder
+COPY --from=builder /app/dist ./dist
+
+# Copy source files needed for runtime
+COPY src ./src
+COPY tsconfig.json ./
 
 ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["bun", "run", "start"]
+CMD ["npm", "run", "start"]

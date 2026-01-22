@@ -222,27 +222,6 @@ export function S3FileManager() {
     }
   };
 
-  const handleDelete = async (key: string) => {
-    if (!window.confirm(`Are you sure you want to delete "${getFileName(key)}"?`)) {
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/s3/delete?key=${encodeKey(key)}`, {
-        method: "DELETE",
-      });
-
-      const data = await response.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        await fetchObjects();
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete file");
-    }
-  };
-
   const closePreview = useCallback(() => {
     // Go back to current folder path
     if (currentPath) {
@@ -725,13 +704,6 @@ export function S3FileManager() {
                       onClick={() => handleDownload(obj.key)}
                     >
                       Download
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleDelete(obj.key)}
-                    >
-                      Delete
                     </Button>
                   </td>
                 </tr>

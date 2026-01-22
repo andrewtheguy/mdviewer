@@ -3,7 +3,6 @@ import {
   ListObjectsV2Command,
   GetObjectCommand,
   PutObjectCommand,
-  DeleteObjectCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
 
@@ -79,9 +78,5 @@ export const s3 = {
   async write(key: string, data: ArrayBuffer | Uint8Array) {
     const body = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
     await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body }));
-  },
-
-  async delete(key: string) {
-    await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   },
 };

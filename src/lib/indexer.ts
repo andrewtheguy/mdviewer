@@ -1,5 +1,13 @@
 import { s3 } from "./s3";
-import { getIndex, keyToId, type S3FileDocument } from "./meilisearch";
+import {
+  addDocument,
+  addDocuments,
+  deleteDocument,
+  deleteAllDocuments,
+  getStats,
+  keyToId,
+  type S3FileDocument,
+} from "./search-db";
 
 const INDEXABLE_EXTENSIONS = ["txt", "md"];
 const CONTENT_PREVIEW_LENGTH = 500;
@@ -39,7 +47,6 @@ export async function indexFile(
   }
 
   try {
-    const index = await getIndex();
     const content = await s3.file(key).text();
     const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
 
@@ -56,7 +63,7 @@ export async function indexFile(
       contentPreview,
     };
 
-    await index.addDocuments([document]);
+    await addDocument(document);
     return true;
   } catch (error) {
     console.error(`Failed to index file ${key}:`, error);
@@ -66,8 +73,7 @@ export async function indexFile(
 
 export async function removeFromIndex(key: string): Promise<boolean> {
   try {
-    const index = await getIndex();
-    await index.deleteDocument(keyToId(key));
+    await deleteDocument(key);
     return true;
   } catch (error) {
     console.error(`Failed to remove ${key} from index:`, error);
@@ -93,11 +99,8 @@ export async function fullReindex(): Promise<ReindexResult> {
   };
 
   try {
-    console.log("[Indexer] Getting index...");
-    const index = await getIndex();
-
     console.log("[Indexer] Deleting all documents...");
-    await index.deleteAllDocuments();
+    await deleteAllDocuments();
 
     console.log("[Indexer] Listing S3 files...");
     const listResult = await s3.list();
@@ -160,7 +163,7 @@ export async function fullReindex(): Promise<ReindexResult> {
 
     console.log(`[Indexer] Adding ${documents.length} documents to index...`);
     if (documents.length > 0) {
-      await index.addDocuments(documents);
+      await addDocuments(documents);
       result.indexed = documents.length;
     }
 
@@ -177,8 +180,7 @@ export async function fullReindex(): Promise<ReindexResult> {
 
 export async function getIndexStats(): Promise<IndexStats> {
   try {
-    const index = await getIndex();
-    const stats = await index.getStats();
+    const stats = getStats();
 
     return {
       numberOfDocuments: stats.numberOfDocuments,
