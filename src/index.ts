@@ -205,7 +205,7 @@ app.get("/api/s3/recent", async (req, res) => {
       name: obj.key?.split("/").pop() || obj.key,
       path: obj.key?.split("/").slice(0, -1).join("/") || "",
       size: obj.size || 0,
-      lastModified: obj.lastModified ? new Date(obj.lastModified).getTime() : 0,
+      lastModified: obj.lastModified ? new Date(obj.lastModified).getTime() : null,
       lastModifiedISO: obj.lastModified ?? null,
     }));
 

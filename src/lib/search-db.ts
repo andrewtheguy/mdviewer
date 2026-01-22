@@ -330,40 +330,45 @@ export function deleteAllDocuments(): void {
   const database = getDatabase();
 
   // Drop triggers, FTS table, and truncate documents table to avoid
-  // firing the delete trigger for each row (much faster for large datasets)
-  database.exec(`
-    DROP TRIGGER IF EXISTS documents_ai;
-    DROP TRIGGER IF EXISTS documents_ad;
-    DROP TRIGGER IF EXISTS documents_au;
-    DROP TABLE IF EXISTS documents_fts;
-    DELETE FROM documents;
+  // firing the delete trigger for each row (much faster for large datasets).
+  // Wrapped in a transaction to ensure atomicity.
+  const rebuildFts = database.transaction(() => {
+    database.exec(`
+      DROP TRIGGER IF EXISTS documents_ai;
+      DROP TRIGGER IF EXISTS documents_ad;
+      DROP TRIGGER IF EXISTS documents_au;
+      DROP TABLE IF EXISTS documents_fts;
+      DELETE FROM documents;
 
-    -- Recreate FTS table
-    CREATE VIRTUAL TABLE documents_fts USING fts5(
-      name, content, path, key,
-      content='documents',
-      content_rowid='rowid',
-      tokenize='porter unicode61'
-    );
+      -- Recreate FTS table
+      CREATE VIRTUAL TABLE documents_fts USING fts5(
+        name, content, path, key,
+        content='documents',
+        content_rowid='rowid',
+        tokenize='porter unicode61'
+      );
 
-    -- Recreate triggers
-    CREATE TRIGGER documents_ai AFTER INSERT ON documents BEGIN
-      INSERT INTO documents_fts(rowid, name, content, path, key)
-      VALUES (new.rowid, new.name, new.content, new.path, new.key);
-    END;
+      -- Recreate triggers
+      CREATE TRIGGER documents_ai AFTER INSERT ON documents BEGIN
+        INSERT INTO documents_fts(rowid, name, content, path, key)
+        VALUES (new.rowid, new.name, new.content, new.path, new.key);
+      END;
 
-    CREATE TRIGGER documents_ad AFTER DELETE ON documents BEGIN
-      INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-      VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-    END;
+      CREATE TRIGGER documents_ad AFTER DELETE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
+        VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
+      END;
 
-    CREATE TRIGGER documents_au AFTER UPDATE ON documents BEGIN
-      INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-      VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-      INSERT INTO documents_fts(rowid, name, content, path, key)
-      VALUES (new.rowid, new.name, new.content, new.path, new.key);
-    END;
-  `);
+      CREATE TRIGGER documents_au AFTER UPDATE ON documents BEGIN
+        INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
+        VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
+        INSERT INTO documents_fts(rowid, name, content, path, key)
+        VALUES (new.rowid, new.name, new.content, new.path, new.key);
+      END;
+    `);
+  });
+
+  rebuildFts();
 }
 
 export interface IndexStats {
