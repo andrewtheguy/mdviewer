@@ -71,34 +71,25 @@ export function DocumentViewer() {
     };
   });
 
-  // Check reindex status on mount and poll while reindexing
-  useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const response = await fetch("/api/search/reindex/status");
-        const data = await response.json();
-        setIsReindexing(data.running);
-      } catch {
-        // Ignore errors
-      }
-    };
-
-    checkStatus();
-
-    // Poll while reindexing
-    if (isReindexing) {
-      const interval = setInterval(checkStatus, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [isReindexing]);
+  // Track previous reindexing state to detect completion
+  const wasReindexingRef = useRef(false);
+  // Ref to store restoreStateFromURL for use in polling effect
+  const restoreStateFromURLRef = useRef<(() => void) | null>(null);
 
   const isMarkdown = (key: string): boolean => {
     return key.toLowerCase().endsWith(".md");
   };
 
   const handleReindex = useCallback(async () => {
+    // Ask for confirmation
+    const confirmed = window.confirm(
+      "This will rebuild the search index from S3. The application will be unavailable during this process. Continue?"
+    );
+    if (!confirmed) return;
+
     setError(null);
     setIsReindexing(true);
+    wasReindexingRef.current = true;
     try {
       const response = await fetch("/api/search/reindex", { method: "POST" });
       const data = await response.json();
@@ -106,12 +97,14 @@ export function DocumentViewer() {
       if (!response.ok) {
         setError(data.error || `Reindex failed with status ${response.status}`);
         setIsReindexing(false);
+        wasReindexingRef.current = false;
         return;
       }
       // Started successfully - polling will track progress
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reindex");
       setIsReindexing(false);
+      wasReindexingRef.current = false;
     }
   }, []);
 
@@ -261,6 +254,41 @@ export function DocumentViewer() {
     }
   }, []);
 
+  // Keep ref updated for use in polling effect
+  useLayoutEffect(() => {
+    restoreStateFromURLRef.current = restoreStateFromURL;
+  });
+
+  // Check reindex status on mount and poll while reindexing
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const response = await fetch("/api/search/reindex/status");
+        const data = await response.json();
+        const nowReindexing = data.running;
+
+        // Detect reindex completion (was running, now not running)
+        if (wasReindexingRef.current && !nowReindexing) {
+          // Refresh current view after reindex completes
+          restoreStateFromURLRef.current?.();
+        }
+
+        wasReindexingRef.current = nowReindexing;
+        setIsReindexing(nowReindexing);
+      } catch {
+        // Ignore errors
+      }
+    };
+
+    checkStatus();
+
+    // Poll while reindexing
+    if (isReindexing) {
+      const interval = setInterval(checkStatus, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [isReindexing]);
+
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   useEffect(() => {
     const methods = restoreStateMethodsRef.current;
@@ -327,6 +355,25 @@ export function DocumentViewer() {
     }
   };
 
+  // Show reindexing overlay when reindex is in progress
+  if (isReindexing) {
+    return (
+      <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
+        <CardContent className="p-6">
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <Loader2 className="size-12 animate-spin text-muted-foreground" />
+            <div className="text-center space-y-2">
+              <h2 className="text-lg font-semibold">Reindexing in Progress</h2>
+              <p className="text-sm text-muted-foreground">
+                Please wait while the search index is being rebuilt...
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
       <CardHeader className="px-4 pb-4 sm:px-6">
@@ -337,17 +384,12 @@ export function DocumentViewer() {
           </div>
           <Button
             onClick={handleReindex}
-            disabled={isReindexing}
             variant="outline"
             size="sm"
             className="gap-2"
           >
-            {isReindexing ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RotateCw className="size-4" />
-            )}
-            <span>{isReindexing ? "Reindexing..." : "Reindex"}</span>
+            <RotateCw className="size-4" />
+            <span>Reindex</span>
           </Button>
         </div>
       </CardHeader>
