@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults, type SearchHit } from "@/components/SearchResults";
 import { RecentFiles, type RecentFile, type FileTypeFilter } from "@/components/RecentFiles";
 import { CollectionsView, type CollectionSummary, type CollectionTitle, type CollectionTranscript } from "@/components/CollectionsView";
-import { ChevronLeft, Loader2, Clock, RotateCw, Library } from "lucide-react";
+import { Loader2, Clock, RotateCw, Library, X } from "lucide-react";
 
 interface PreviewMetadata {
   collection: string | null;
@@ -103,30 +103,18 @@ function getTypeFilterFromURL(): FileTypeFilter {
   return "all";
 }
 
-// Get preview key from URL
-function getPreviewKeyFromURL(): string | null {
-  const match = window.location.pathname.match(/^\/preview\/(.+)$/);
-  if (match && match[1]) {
+// Get preview key from URL query param
+function getPreviewFromQueryParam(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const encoded = params.get("preview");
+  if (encoded) {
     try {
-      return decodeKey(match[1]);
+      return decodeKey(encoded);
     } catch {
       return null;
     }
   }
   return null;
-}
-
-// Get return URL from query params (for preview back navigation)
-function getReturnUrlFromURL(): string {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("from") || "/collections";
-}
-
-// Get current page URL (pathname + search, excluding 'from' param)
-function getCurrentPageUrl(): string {
-  const url = new URL(window.location.href);
-  url.searchParams.delete("from");
-  return url.pathname + url.search;
 }
 
 // Update page query param in URL and push to history
@@ -148,7 +136,7 @@ export function DocumentViewer() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewMetadata, setPreviewMetadata] = useState<PreviewMetadata | null>(null);
 
-  const [previewFile, setPreviewFile] = useState<string | null>(getPreviewKeyFromURL);
+  const [previewFile, setPreviewFile] = useState<string | null>(getPreviewFromQueryParam);
 
   // Search state
   const initialSearchQuery = getSearchQueryFromURL();
@@ -267,10 +255,9 @@ export function DocumentViewer() {
   };
 
   const handlePreview = (key: string) => {
-    const encoded = encodeKey(key);
-    const currentUrl = getCurrentPageUrl();
-    const previewUrl = `/preview/${encoded}?from=${encodeURIComponent(currentUrl)}`;
-    window.history.pushState({}, "", previewUrl);
+    const url = new URL(window.location.href);
+    url.searchParams.set("preview", encodeKey(key));
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
     setPreviewFile(key);
   };
 
@@ -603,25 +590,29 @@ export function DocumentViewer() {
   }, [loadCollections]);
 
   // Shared function to restore state from current URL
-  // Used by both closePreview and popstate handler
+  // Used by popstate handler to sync state with browser navigation
   const restoreStateFromURL = useCallback(() => {
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
       window.history.replaceState({}, "", "/collections");
     }
 
-    const previewKey = getPreviewKeyFromURL();
+    // Check preview param (coexists with view state)
+    const previewKey = getPreviewFromQueryParam();
+    if (previewKey) {
+      setPreviewFile(previewKey);
+    } else {
+      setPreviewFile(null);
+      setPreviewContent("");
+      setPreviewMetadata(null);
+    }
+
     const urlQuery = getSearchQueryFromURL();
     const isRecent = isRecentViewFromURL();
     const isCollections = isCollectionsViewFromURL() || shouldRedirectToCollections();
 
-    if (previewKey) {
-      setPreviewFile(previewKey);
-      setIsRecentMode(false);
-    } else if (isCollections) {
-      setPreviewFile(null);
-      setPreviewContent("");
-      setPreviewMetadata(null);
+    // Restore view state (collections/recent/search)
+    if (isCollections) {
       setIsRecentMode(false);
       setIsSearchMode(false);
       const collectionFromUrl = getCollectionFromURL();
@@ -653,9 +644,6 @@ export function DocumentViewer() {
         loadCollections(pageFromUrl);
       }
     } else if (isRecent) {
-      setPreviewFile(null);
-      setPreviewContent("");
-      setPreviewMetadata(null);
       setIsRecentMode(true);
       setIsSearchMode(false);
       const pageFromUrl = getPageFromURL();
@@ -668,7 +656,7 @@ export function DocumentViewer() {
     // Handle search query changes
     if (urlQuery) {
       handleSearch(urlQuery, false);
-    } else if (!isRecent && !isCollections && !previewKey) {
+    } else if (!isRecent && !isCollections) {
       setSearchQuery("");
       setSearchResults([]);
       setSearchTotalHits(0);
@@ -678,17 +666,14 @@ export function DocumentViewer() {
   }, [handleSearch, loadRecentFiles, loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
 
   const closePreview = useCallback(() => {
-    // Navigate to the return URL from query param, or fallback to /collections
-    const returnUrl = getReturnUrlFromURL();
-    window.history.pushState({}, "", returnUrl);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("preview");
+    window.history.pushState({}, "", `${url.pathname}${url.search}`);
     setPreviewFile(null);
     setPreviewContent("");
     setPreviewMetadata(null);
     setPreviewLoading(false);
-
-    // Restore state based on the return URL
-    restoreStateFromURL();
-  }, [restoreStateFromURL]);
+  }, []);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
@@ -768,48 +753,6 @@ export function DocumentViewer() {
     }
   };
 
-  // Full-screen preview view
-  if (previewFile) {
-    return (
-      <div className="fixed inset-0 bg-background z-50 flex flex-col">
-        <div className="flex items-center gap-3 p-4 border-b bg-background">
-          <Button variant="ghost" size="sm" onClick={closePreview} className="gap-2">
-            <ChevronLeft className="size-4" />
-            Back
-          </Button>
-          <div className="flex flex-col flex-1 min-w-0">
-            {previewMetadata?.collection && (
-              <span className="text-xs text-muted-foreground">{previewMetadata.collection}</span>
-            )}
-            <h1 className="text-sm font-medium truncate">
-              {previewMetadata?.title || getFileName(previewFile)}
-            </h1>
-            {previewMetadata?.creationDateISO && (
-              <span className="text-xs text-muted-foreground">
-                {formatPreviewDate(previewMetadata.creationDateISO)}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex-1 overflow-auto p-6">
-          {previewLoading ? (
-            <div className="text-center text-muted-foreground py-8">
-              Loading...
-            </div>
-          ) : isMarkdown(previewFile) ? (
-            <div className="prose prose-neutral dark:prose-invert max-w-4xl mx-auto prose-ul:list-disc prose-ol:list-decimal prose-li:my-1">
-              <Markdown>{previewContent}</Markdown>
-            </div>
-          ) : (
-            <pre className="font-mono text-sm whitespace-pre-wrap break-words max-w-4xl mx-auto">
-              {previewContent}
-            </pre>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
       <CardHeader className="px-4 pb-4 sm:px-6">
@@ -875,58 +818,92 @@ export function DocumentViewer() {
         </div>
 
         <div className="px-4 sm:px-0">
-        {/* Search Results */}
-        {isSearchMode ? (
-          <SearchResults
-            hits={searchResults}
-            query={searchQuery}
-            totalHits={searchTotalHits}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            currentPage={searchCurrentPage}
-            pageSize={PAGE_SIZE}
-            loading={isSearching}
-            onPageChange={handleSearchPageChange}
-          />
-        ) : isRecentMode ? (
-          <RecentFiles
-            files={recentFiles}
-            totalFiles={recentTotalFiles}
-            loading={isLoadingRecent}
-            typeFilter={recentTypeFilter}
-            onTypeFilterChange={handleRecentTypeFilterChange}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            currentPage={recentCurrentPage}
-            pageSize={PAGE_SIZE}
-            onPageChange={handleRecentPageChange}
-          />
-        ) : (
-          <CollectionsView
-            collections={collections}
-            totalCollections={totalCollections}
-            collectionsCurrentPage={collectionsListCurrentPage}
-            onCollectionsPageChange={handleCollectionsListPageChange}
-            selectedCollection={selectedCollection}
-            titles={collectionTitles}
-            totalTitles={totalCollectionTitles}
-            titlesCurrentPage={titlesCurrentPage}
-            onTitlesPageChange={handleTitlesPageChange}
-            selectedTitle={selectedTitle}
-            onSelectTitle={handleSelectTitle}
-            onTitleBack={handleTitleBack}
-            transcripts={collectionTranscripts}
-            loading={isLoadingCollections}
-            onSelectCollection={handleSelectCollection}
-            onBack={handleCollectionBack}
-            onPreview={handlePreview}
-            onDownload={handleDownload}
-            currentPage={collectionCurrentPage}
-            pageSize={PAGE_SIZE}
-            totalTranscripts={collectionTotalTranscripts}
-            onPageChange={handleCollectionPageChange}
-          />
-        )}
+          {previewFile ? (
+            // Inline preview
+            <div className="border rounded-lg">
+              <div className="flex items-center justify-between gap-3 p-4 border-b bg-muted/50">
+                <div className="flex flex-col flex-1 min-w-0">
+                  {previewMetadata?.collection && (
+                    <span className="text-xs text-muted-foreground">{previewMetadata.collection}</span>
+                  )}
+                  <h2 className="text-sm font-medium truncate">
+                    {previewMetadata?.title || getFileName(previewFile)}
+                  </h2>
+                  {previewMetadata?.creationDateISO && (
+                    <span className="text-xs text-muted-foreground">
+                      {formatPreviewDate(previewMetadata.creationDateISO)}
+                    </span>
+                  )}
+                </div>
+                <Button variant="ghost" size="icon" onClick={closePreview} className="size-8">
+                  <X className="size-4" />
+                </Button>
+              </div>
+              <div className="p-6 max-h-[70vh] overflow-auto">
+                {previewLoading ? (
+                  <div className="text-center text-muted-foreground py-8">Loading...</div>
+                ) : isMarkdown(previewFile) ? (
+                  <div className="prose prose-neutral dark:prose-invert max-w-none prose-ul:list-disc prose-ol:list-decimal prose-li:my-1">
+                    <Markdown>{previewContent}</Markdown>
+                  </div>
+                ) : (
+                  <pre className="font-mono text-sm whitespace-pre-wrap break-words">
+                    {previewContent}
+                  </pre>
+                )}
+              </div>
+            </div>
+          ) : isSearchMode ? (
+            <SearchResults
+              hits={searchResults}
+              query={searchQuery}
+              totalHits={searchTotalHits}
+              onPreview={handlePreview}
+              onDownload={handleDownload}
+              currentPage={searchCurrentPage}
+              pageSize={PAGE_SIZE}
+              loading={isSearching}
+              onPageChange={handleSearchPageChange}
+            />
+          ) : isRecentMode ? (
+            <RecentFiles
+              files={recentFiles}
+              totalFiles={recentTotalFiles}
+              loading={isLoadingRecent}
+              typeFilter={recentTypeFilter}
+              onTypeFilterChange={handleRecentTypeFilterChange}
+              onPreview={handlePreview}
+              onDownload={handleDownload}
+              currentPage={recentCurrentPage}
+              pageSize={PAGE_SIZE}
+              onPageChange={handleRecentPageChange}
+            />
+          ) : (
+            <CollectionsView
+              collections={collections}
+              totalCollections={totalCollections}
+              collectionsCurrentPage={collectionsListCurrentPage}
+              onCollectionsPageChange={handleCollectionsListPageChange}
+              selectedCollection={selectedCollection}
+              titles={collectionTitles}
+              totalTitles={totalCollectionTitles}
+              titlesCurrentPage={titlesCurrentPage}
+              onTitlesPageChange={handleTitlesPageChange}
+              selectedTitle={selectedTitle}
+              onSelectTitle={handleSelectTitle}
+              onTitleBack={handleTitleBack}
+              transcripts={collectionTranscripts}
+              loading={isLoadingCollections}
+              onSelectCollection={handleSelectCollection}
+              onBack={handleCollectionBack}
+              onPreview={handlePreview}
+              onDownload={handleDownload}
+              currentPage={collectionCurrentPage}
+              pageSize={PAGE_SIZE}
+              totalTranscripts={collectionTotalTranscripts}
+              onPageChange={handleCollectionPageChange}
+            />
+          )}
         </div>
       </CardContent>
     </Card>
