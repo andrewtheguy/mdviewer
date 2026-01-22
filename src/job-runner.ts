@@ -206,12 +206,18 @@ async function runReindex() {
         // Get metadata for this file's folder
         const metadata = folderMetadataCache.get(folderPath) ?? null;
 
-        // Determine creation date - use metadata if available, otherwise S3 lastModified
+        // Determine creation date - use metadata if available and valid, otherwise S3 lastModified
         let creationDate: Date;
         let creationDateISO: string;
         if (metadata?.creation_date) {
-          creationDate = new Date(metadata.creation_date);
-          creationDateISO = metadata.creation_date;
+          const parsed = new Date(metadata.creation_date);
+          if (!isNaN(parsed.getTime())) {
+            creationDate = parsed;
+            creationDateISO = metadata.creation_date;
+          } else {
+            creationDate = lastModified;
+            creationDateISO = lastModified.toISOString();
+          }
         } else {
           creationDate = lastModified;
           creationDateISO = lastModified.toISOString();

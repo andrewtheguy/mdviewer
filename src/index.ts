@@ -373,7 +373,9 @@ app.get("/api/collections/:collection", (req, res) => {
 
 app.get("/api/collections/:collection/transcripts/:title", (req, res) => {
   try {
-    const { collection, title } = req.params;
+    const { collection, title: titleParam } = req.params;
+    // Translate placeholder to null for querying documents with NULL title
+    const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
 
     // Parse and validate limit
     let limit = parseInt((req.query.limit as string) || "50", 10);

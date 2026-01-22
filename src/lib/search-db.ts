@@ -762,7 +762,7 @@ export function getCollectionTitles(
 
   // Get total count of distinct titles in this collection
   const countStmt = database.prepare(`
-    SELECT COUNT(DISTINCT COALESCE(title, 'Untitled')) as count
+    SELECT COUNT(DISTINCT COALESCE(title, '__NO_TITLE_e4f7b2c9__')) as count
     FROM documents
     WHERE collection = ?
   `);
@@ -772,12 +772,12 @@ export function getCollectionTitles(
   // Get paginated titles sorted by latest creation date DESC
   const stmt = database.prepare(`
     SELECT
-      COALESCE(title, 'Untitled') as title,
+      COALESCE(title, '__NO_TITLE_e4f7b2c9__') as title,
       COUNT(*) as count,
       MAX(creation_date_iso) as latestCreationDate
     FROM documents
     WHERE collection = ?
-    GROUP BY COALESCE(title, 'Untitled')
+    GROUP BY COALESCE(title, '__NO_TITLE_e4f7b2c9__')
     ORDER BY MAX(creation_date) DESC
     LIMIT ? OFFSET ?
   `);
@@ -792,9 +792,12 @@ export function getCollectionTitles(
 }
 
 // Get transcripts in a collection (optionally filtered by title)
+// When title is null, filters for documents with NULL title
+// When title is a string, filters for exact title match
+// When title is undefined, no title filter is applied
 export function getCollectionTranscripts(
   collection: string,
-  options: { limit?: number; offset?: number; title?: string } = {}
+  options: { limit?: number; offset?: number; title?: string | null } = {}
 ): CollectionTranscriptsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
@@ -806,16 +809,14 @@ export function getCollectionTranscripts(
   const countParams: (string | null)[] = [collection];
   const selectParams: (string | null | number)[] = [collection];
 
-  if (titleFilter !== undefined) {
-    if (titleFilter === "Untitled") {
-      // Filter by NULL title
-      whereClause += " AND title IS NULL";
-    } else {
-      // Filter by specific title
-      whereClause += " AND title = ?";
-      countParams.push(titleFilter);
-      selectParams.push(titleFilter);
-    }
+  if (titleFilter === null) {
+    // Filter by NULL title
+    whereClause += " AND title IS NULL";
+  } else if (titleFilter !== undefined) {
+    // Filter by specific title (exact match)
+    whereClause += " AND title = ?";
+    countParams.push(titleFilter);
+    selectParams.push(titleFilter);
   }
 
   // Get total count for this collection (with optional title filter)
