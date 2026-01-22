@@ -306,9 +306,9 @@ app.get("/api/search/reindex/status", async (_req, res) => {
   }
 });
 
-app.get("/api/search/stats", async (_req, res) => {
+app.get("/api/search/stats", (_req, res) => {
   try {
-    const stats = await getIndexStats();
+    const stats = getIndexStats();
     res.json(stats);
   } catch (error) {
     res.status(500).json({
