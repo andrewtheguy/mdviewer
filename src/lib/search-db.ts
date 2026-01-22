@@ -28,6 +28,36 @@ export function idToKey(id: string): string {
 
 const DB_PATH = process.env.SQLITE_DB_PATH || "./data/search.sqlite";
 
+// Shared FTS5 table definition
+const FTS_TABLE_DEFINITION = `
+  CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
+    name, content, path, key,
+    content='documents',
+    content_rowid='rowid',
+    tokenize='porter unicode61'
+  );
+`;
+
+// Shared trigger definitions to keep FTS in sync with main table
+const TRIGGER_DEFINITIONS = `
+  CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
+    INSERT INTO documents_fts(rowid, name, content, path, key)
+    VALUES (new.rowid, new.name, new.content, new.path, new.key);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
+    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
+    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
+    INSERT INTO documents_fts(rowid, name, content, path, key)
+    VALUES (new.rowid, new.name, new.content, new.path, new.key);
+  END;
+`;
+
 let db: Database.Database | null = null;
 
 export function getDatabase(): Database.Database {
@@ -118,31 +148,9 @@ function initializeSchema(database: Database.Database): void {
       content_preview TEXT NOT NULL
     );
 
-    -- FTS5 virtual table (external content)
-    CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-      name, content, path, key,
-      content='documents',
-      content_rowid='rowid',
-      tokenize='porter unicode61'
-    );
+    ${FTS_TABLE_DEFINITION}
 
-    -- Triggers to keep FTS in sync with main table
-    CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-      INSERT INTO documents_fts(rowid, name, content, path, key)
-      VALUES (new.rowid, new.name, new.content, new.path, new.key);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-      INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-      VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-    END;
-
-    CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-      INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-      VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-      INSERT INTO documents_fts(rowid, name, content, path, key)
-      VALUES (new.rowid, new.name, new.content, new.path, new.key);
-    END;
+    ${TRIGGER_DEFINITIONS}
 
     -- Index for faster lookups by key
     CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
@@ -359,31 +367,9 @@ export function deleteAllDocuments(): void {
       DROP TABLE IF EXISTS documents_fts;
       DELETE FROM documents;
 
-      -- Recreate FTS table
-      CREATE VIRTUAL TABLE documents_fts USING fts5(
-        name, content, path, key,
-        content='documents',
-        content_rowid='rowid',
-        tokenize='porter unicode61'
-      );
+      ${FTS_TABLE_DEFINITION}
 
-      -- Recreate triggers
-      CREATE TRIGGER documents_ai AFTER INSERT ON documents BEGIN
-        INSERT INTO documents_fts(rowid, name, content, path, key)
-        VALUES (new.rowid, new.name, new.content, new.path, new.key);
-      END;
-
-      CREATE TRIGGER documents_ad AFTER DELETE ON documents BEGIN
-        INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-        VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-      END;
-
-      CREATE TRIGGER documents_au AFTER UPDATE ON documents BEGIN
-        INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key)
-        VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key);
-        INSERT INTO documents_fts(rowid, name, content, path, key)
-        VALUES (new.rowid, new.name, new.content, new.path, new.key);
-      END;
+      ${TRIGGER_DEFINITIONS}
     `);
   });
 
