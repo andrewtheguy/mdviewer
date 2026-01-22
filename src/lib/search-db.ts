@@ -421,11 +421,11 @@ export function listDocuments(options: ListDocumentsOptions = {}): ListDocuments
   const countResult = countStmt.get() as { count: number };
   const total = countResult.count;
 
-  // Get paginated results
+  // Get paginated results (sorted alphabetically by key)
   const stmt = database.prepare(`
     SELECT key, size, last_modified_iso as lastModified
     FROM documents
-    ORDER BY last_modified DESC
+    ORDER BY key ASC
     LIMIT ? OFFSET ?
   `);
   const objects = stmt.all(limit, offset) as Array<{ key: string; size: number; lastModified: string | null }>;
