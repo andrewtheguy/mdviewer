@@ -403,6 +403,7 @@ export function getStats(): IndexStats {
 export interface ListDocumentsOptions {
   limit?: number;
   offset?: number;
+  all?: boolean;
 }
 
 export interface ListDocumentsResult {
@@ -413,15 +414,27 @@ export interface ListDocumentsResult {
 // List all documents with pagination (for /api/documents/list)
 export function listDocuments(options: ListDocumentsOptions = {}): ListDocumentsResult {
   const database = getDatabase();
-  const limit = validatePaginationParam(options.limit, 100, MAX_LIMIT);
-  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
   // Get total count
   const countStmt = database.prepare("SELECT COUNT(*) as count FROM documents");
   const countResult = countStmt.get() as { count: number };
   const total = countResult.count;
 
-  // Get paginated results (sorted alphabetically by key)
+  // If all=true, return all documents without pagination
+  if (options.all) {
+    const stmt = database.prepare(`
+      SELECT key, size, last_modified_iso as lastModified
+      FROM documents
+      ORDER BY key ASC
+    `);
+    const objects = stmt.all() as Array<{ key: string; size: number; lastModified: string | null }>;
+    return { objects, total };
+  }
+
+  // Otherwise use pagination
+  const limit = validatePaginationParam(options.limit, 100, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
   const stmt = database.prepare(`
     SELECT key, size, last_modified_iso as lastModified
     FROM documents

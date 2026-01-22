@@ -79,6 +79,15 @@ app.use(express.json());
 // Document API Routes (served from database)
 app.get("/api/documents/list", (req, res) => {
   try {
+    // Check if requesting all documents (for folder browsing)
+    const all = req.query.all === "true";
+
+    if (all) {
+      const result = listDocuments({ all: true });
+      res.json({ objects: result.objects, total: result.total });
+      return;
+    }
+
     // Parse and validate limit
     let limit = parseInt((req.query.limit as string) || "100", 10);
     if (isNaN(limit) || limit < 0) {

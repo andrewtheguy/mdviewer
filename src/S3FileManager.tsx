@@ -163,7 +163,7 @@ export function S3FileManager() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/documents/list");
+      const response = await fetch("/api/documents/list?all=true");
       const data = await response.json();
       if (data.error) {
         setError(data.error);
