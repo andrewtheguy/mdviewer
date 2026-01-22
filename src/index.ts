@@ -278,7 +278,7 @@ if (isProduction) {
   app.use(express.static(distPath));
 
   // Fallback to index.html for SPA routing, but return 404 for unknown API routes
-  app.get("/*", (req, res) => {
+  app.get("/{*splat}", (req, res) => {
     if (req.path.startsWith("/api")) {
       res.status(404).json({ error: "Not Found" });
       return;
