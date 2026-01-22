@@ -23,9 +23,9 @@ interface RecentFilesProps {
   onDownload: (key: string) => void;
   onNavigateToFolder: (path: string) => void;
   onClose: () => void;
-  onLoadMore: () => void;
-  hasMore: boolean;
-  loadingMore: boolean;
+  currentPage: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -64,10 +64,11 @@ export function RecentFiles({
   onDownload,
   onNavigateToFolder,
   onClose,
-  onLoadMore,
-  hasMore,
-  loadingMore,
+  currentPage,
+  pageSize,
+  onPageChange,
 }: RecentFilesProps) {
+  const totalPages = Math.ceil(totalFiles / pageSize);
 
   if (loading) {
     return (
@@ -208,11 +209,12 @@ export function RecentFiles({
       </div>
 
       <Pagination
-        current={files.length}
-        total={totalFiles}
-        loading={loadingMore}
-        hasMore={hasMore}
-        onLoadMore={onLoadMore}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={totalFiles}
+        pageSize={pageSize}
+        loading={loading}
+        onPageChange={onPageChange}
       />
     </div>
   );

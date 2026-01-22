@@ -25,9 +25,10 @@ interface SearchResultsProps {
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
   onNavigateToFolder: (path: string) => void;
-  onLoadMore: () => void;
-  hasMore: boolean;
-  loadingMore: boolean;
+  currentPage: number;
+  pageSize: number;
+  loading: boolean;
+  onPageChange: (page: number) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -54,10 +55,12 @@ export function SearchResults({
   onPreview,
   onDownload,
   onNavigateToFolder,
-  onLoadMore,
-  hasMore,
-  loadingMore,
+  currentPage,
+  pageSize,
+  loading,
+  onPageChange,
 }: SearchResultsProps) {
+  const totalPages = Math.ceil(totalHits / pageSize);
   if (hits.length === 0) {
     return (
       <div className="text-center text-muted-foreground py-8">
@@ -155,11 +158,12 @@ export function SearchResults({
       </div>
 
       <Pagination
-        current={hits.length}
-        total={totalHits}
-        loading={loadingMore}
-        hasMore={hasMore}
-        onLoadMore={onLoadMore}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        totalItems={totalHits}
+        pageSize={pageSize}
+        loading={loading}
+        onPageChange={onPageChange}
       />
     </div>
   );
