@@ -544,53 +544,61 @@ export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
   // If path is empty (root), we match all keys
   // If path is "foo", we match "foo/..." but not "foobar/..."
   const prefix = path ? path + "/" : "";
+  const prefixLen = prefix.length;
 
   // Escape LIKE wildcards in the prefix for literal matching
   const escapedPrefix = escapeLikePattern(prefix);
 
-  // Get all unique immediate subfolders and files at this path level
-  // We need to query all documents under this prefix and then parse them
-  const allDocsStmt = database.prepare(`
+  // Query for files at this level: keys that match prefix but don't have another slash
+  // i.e., key LIKE 'prefix%' AND key NOT LIKE 'prefix%/%'
+  const filesCountStmt = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM documents
+    WHERE key LIKE ? ESCAPE '\\'
+      AND key NOT LIKE ? ESCAPE '\\'
+  `);
+  const filesCountResult = filesCountStmt.get(
+    escapedPrefix + "%",
+    escapedPrefix + "%/_%"
+  ) as { count: number };
+  const totalFiles = filesCountResult.count;
+
+  const filesStmt = database.prepare(`
     SELECT key, size, last_modified_iso as lastModified
     FROM documents
     WHERE key LIKE ? ESCAPE '\\'
+      AND key NOT LIKE ? ESCAPE '\\'
     ORDER BY key ASC
+    LIMIT ? OFFSET ?
   `);
+  const files = filesStmt.all(
+    escapedPrefix + "%",
+    escapedPrefix + "%/_%",
+    limit,
+    offset
+  ) as Array<{ key: string; size: number; lastModified: string | null }>;
 
-  const allDocs = allDocsStmt.all(escapedPrefix + "%") as Array<{
-    key: string;
-    size: number;
-    lastModified: string | null;
-  }>;
-
-  const foldersSet = new Set<string>();
-  const filesAtLevel: Array<{ key: string; size: number; lastModified: string | null }> = [];
-
-  for (const doc of allDocs) {
-    // Get the part of the key after the prefix
-    const remainder = doc.key.slice(prefix.length);
-    if (remainder === "") continue; // Skip if exact match (the folder itself)
-
-    const slashIndex = remainder.indexOf("/");
-    if (slashIndex === -1) {
-      // It's a file at this level
-      filesAtLevel.push(doc);
-    } else {
-      // It's a folder - extract first path segment
-      foldersSet.add(remainder.slice(0, slashIndex));
-    }
-  }
-
-  const folders = Array.from(foldersSet).sort();
+  // Query for distinct folder names: extract first path segment after prefix
+  // for keys that have at least one more slash after the prefix
+  const foldersStmt = database.prepare(`
+    SELECT DISTINCT substr(key, ? + 1, instr(substr(key, ? + 1), '/') - 1) as folder
+    FROM documents
+    WHERE key LIKE ? ESCAPE '\\'
+      AND instr(substr(key, ? + 1), '/') > 0
+    ORDER BY folder ASC
+  `);
+  const folderRows = foldersStmt.all(
+    prefixLen,
+    prefixLen,
+    escapedPrefix + "%",
+    prefixLen
+  ) as Array<{ folder: string }>;
+  const folders = folderRows.map(row => row.folder);
   const totalFolders = folders.length;
-  const totalFiles = filesAtLevel.length;
-
-  // Paginate files only (folders are usually few, so we return all)
-  const paginatedFiles = filesAtLevel.slice(offset, offset + limit);
 
   return {
     folders,
-    files: paginatedFiles,
+    files,
     totalFolders,
     totalFiles,
   };
