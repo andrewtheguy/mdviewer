@@ -739,17 +739,8 @@ export function DocumentViewer() {
                       <span>..</span>
                     </div>
                   </td>
-                  <td
-                    className="p-3 text-right"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleNavigateUp}
-                    >
-                      Back
-                    </Button>
+                  <td className="p-3 text-right text-muted-foreground">
+                    -
                   </td>
                 </tr>
               )}
