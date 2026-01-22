@@ -72,10 +72,24 @@ const app = express();
 app.use(express.json());
 
 // S3 API Routes (now served from database)
-app.get("/api/s3/list", (_req, res) => {
+app.get("/api/s3/list", (req, res) => {
   try {
-    const objects = listDocuments();
-    res.json({ objects });
+    // Parse and validate limit
+    let limit = parseInt((req.query.limit as string) || "100", 10);
+    if (isNaN(limit) || limit < 0) {
+      limit = 100;
+    } else if (limit > 100) {
+      limit = 100;
+    }
+
+    // Parse and validate offset
+    let offset = parseInt((req.query.offset as string) || "0", 10);
+    if (isNaN(offset) || offset < 0) {
+      offset = 0;
+    }
+
+    const result = listDocuments({ limit, offset });
+    res.json({ objects: result.objects, total: result.total });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to list objects",
@@ -154,14 +168,31 @@ app.get("/api/s3/preview", (req, res) => {
 // Recent files endpoint - returns recently updated .txt and .md files from database
 app.get("/api/s3/recent", (req, res) => {
   try {
-    const limit = parseInt((req.query.limit as string) || "50", 10);
-    const offset = parseInt((req.query.offset as string) || "0", 10);
-    const typeFilter = (req.query.type as string) || "all"; // "all", "txt", or "md"
+    // Parse and validate limit
+    let limit = parseInt((req.query.limit as string) || "50", 10);
+    if (isNaN(limit) || limit < 0) {
+      limit = 50;
+    } else if (limit > 100) {
+      limit = 100;
+    }
+
+    // Parse and validate offset
+    let offset = parseInt((req.query.offset as string) || "0", 10);
+    if (isNaN(offset) || offset < 0) {
+      offset = 0;
+    }
+
+    // Validate typeFilter against allowed values
+    const allowedTypes = ["all", "txt", "md"] as const;
+    const rawType = (req.query.type as string) || "all";
+    const typeFilter: "all" | "txt" | "md" = allowedTypes.includes(rawType as typeof allowedTypes[number])
+      ? (rawType as "all" | "txt" | "md")
+      : "all";
 
     const result = getRecentDocuments({
       limit,
       offset,
-      type: typeFilter as "all" | "txt" | "md",
+      type: typeFilter,
     });
 
     res.json({

@@ -400,15 +400,37 @@ export function getStats(): IndexStats {
   };
 }
 
-// List all documents (for /api/s3/list)
-export function listDocuments(): Array<{ key: string; size: number; lastModified: string | null }> {
+export interface ListDocumentsOptions {
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListDocumentsResult {
+  objects: Array<{ key: string; size: number; lastModified: string | null }>;
+  total: number;
+}
+
+// List all documents with pagination (for /api/s3/list)
+export function listDocuments(options: ListDocumentsOptions = {}): ListDocumentsResult {
   const database = getDatabase();
+  const limit = validatePaginationParam(options.limit, 100, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
+  // Get total count
+  const countStmt = database.prepare("SELECT COUNT(*) as count FROM documents");
+  const countResult = countStmt.get() as { count: number };
+  const total = countResult.count;
+
+  // Get paginated results
   const stmt = database.prepare(`
     SELECT key, size, last_modified_iso as lastModified
     FROM documents
     ORDER BY last_modified DESC
+    LIMIT ? OFFSET ?
   `);
-  return stmt.all() as Array<{ key: string; size: number; lastModified: string | null }>;
+  const objects = stmt.all(limit, offset) as Array<{ key: string; size: number; lastModified: string | null }>;
+
+  return { objects, total };
 }
 
 export interface RecentDocumentsOptions {
@@ -432,8 +454,8 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   totalFiles: number;
 } {
   const database = getDatabase();
-  const limit = options.limit ?? 50;
-  const offset = options.offset ?? 0;
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
   const typeFilter = options.type ?? "all";
 
   // Build WHERE clause based on type filter
