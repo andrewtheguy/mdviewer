@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Markdown from "react-markdown";
@@ -36,19 +36,25 @@ export function DocumentViewer() {
   const recent = useRecent(setError);
   const collections = useCollections(setError);
 
-  // Refs to store latest hook methods for use in restoreStateFromURL
-  // This prevents restoreStateFromURL from being recreated on every hook state change
-  const restoreStateMethodsRef = useRef({
-    restorePreviewFromURL: preview.restorePreviewFromURL,
-    setIsRecentMode: recent.setIsRecentMode,
-    clearSearchState: search.clearSearchState,
-    restoreCollectionsFromURL: collections.restoreCollectionsFromURL,
-    restoreRecentFromURL: recent.restoreRecentFromURL,
-    handleSearch: search.handleSearch,
-  });
+  // Refs to store latest hook methods for stable callbacks
+  // This prevents callbacks from being recreated on every hook state change
+  const restoreStateMethodsRef = useRef<{
+    restorePreviewFromURL: typeof preview.restorePreviewFromURL;
+    setIsRecentMode: typeof recent.setIsRecentMode;
+    clearSearchState: typeof search.clearSearchState;
+    restoreCollectionsFromURL: typeof collections.restoreCollectionsFromURL;
+    restoreRecentFromURL: typeof recent.restoreRecentFromURL;
+    handleSearch: typeof search.handleSearch;
+    loadRecentFiles: typeof recent.loadRecentFiles;
+    setSelectedCollection: typeof collections.setSelectedCollection;
+    setSelectedTitle: typeof collections.setSelectedTitle;
+    loadCollectionTranscripts: typeof collections.loadCollectionTranscripts;
+    loadCollectionTitles: typeof collections.loadCollectionTitles;
+    loadCollections: typeof collections.loadCollections;
+  }>(null!);
 
-  // Keep refs updated with latest methods
-  useEffect(() => {
+  // Synchronously update refs after render (useLayoutEffect runs before browser paint)
+  useLayoutEffect(() => {
     restoreStateMethodsRef.current = {
       restorePreviewFromURL: preview.restorePreviewFromURL,
       setIsRecentMode: recent.setIsRecentMode,
@@ -56,6 +62,12 @@ export function DocumentViewer() {
       restoreCollectionsFromURL: collections.restoreCollectionsFromURL,
       restoreRecentFromURL: recent.restoreRecentFromURL,
       handleSearch: search.handleSearch,
+      loadRecentFiles: recent.loadRecentFiles,
+      setSelectedCollection: collections.setSelectedCollection,
+      setSelectedTitle: collections.setSelectedTitle,
+      loadCollectionTranscripts: collections.loadCollectionTranscripts,
+      loadCollectionTitles: collections.loadCollectionTitles,
+      loadCollections: collections.loadCollections,
     };
   });
 
@@ -250,6 +262,8 @@ export function DocumentViewer() {
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   useEffect(() => {
+    const methods = restoreStateMethodsRef.current;
+
     // Redirect root to /collections
     if (shouldRedirectToCollections()) {
       window.history.replaceState({}, "", "/collections");
@@ -257,31 +271,30 @@ export function DocumentViewer() {
 
     const initialQuery = getSearchQueryFromURL();
     if (initialQuery) {
-      search.handleSearch(initialQuery, false);
+      methods.handleSearch(initialQuery, false);
     } else if (isRecentViewFromURL()) {
       // Read page and type from URL to support direct links
       const pageFromUrl = getPageFromURL();
       const typeFromUrl = getTypeFilterFromURL();
-      recent.loadRecentFiles(typeFromUrl, pageFromUrl);
+      methods.loadRecentFiles(typeFromUrl, pageFromUrl);
     } else if (isCollectionsViewFromURL() || shouldRedirectToCollections()) {
       const collectionFromUrl = getCollectionFromURL();
       const titleFromUrl = getTitleFromURL();
       const pageFromUrl = getPageFromURL();
       if (collectionFromUrl && titleFromUrl) {
         // URL: /collections/:collection/:title - load transcripts for this title
-        collections.setSelectedCollection(collectionFromUrl);
-        collections.setSelectedTitle(titleFromUrl);
-        collections.loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
+        methods.setSelectedCollection(collectionFromUrl);
+        methods.setSelectedTitle(titleFromUrl);
+        methods.loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
       } else if (collectionFromUrl) {
         // URL: /collections/:collection - load titles for this collection
-        collections.setSelectedCollection(collectionFromUrl);
-        collections.loadCollectionTitles(collectionFromUrl, pageFromUrl);
+        methods.setSelectedCollection(collectionFromUrl);
+        methods.loadCollectionTitles(collectionFromUrl, pageFromUrl);
       } else {
         // URL: /collections - load collections list
-        collections.loadCollections(pageFromUrl);
+        methods.loadCollections(pageFromUrl);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Handle browser back/forward
