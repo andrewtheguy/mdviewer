@@ -697,9 +697,25 @@ export interface CollectionTranscriptsResult {
   total: number;
 }
 
-// Get all collections with counts
-export function getCollections(): CollectionSummary[] {
+export interface CollectionsResult {
+  collections: CollectionSummary[];
+  total: number;
+}
+
+// Get all collections with counts (with pagination)
+export function getCollections(options: { limit?: number; offset?: number } = {}): CollectionsResult {
   const database = getDatabase();
+  const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
+  const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+
+  // Get total count of distinct collections
+  const countStmt = database.prepare(`
+    SELECT COUNT(DISTINCT collection) as count
+    FROM documents
+    WHERE collection IS NOT NULL
+  `);
+  const countResult = countStmt.get() as { count: number };
+  const total = countResult.count;
 
   const stmt = database.prepare(`
     SELECT
@@ -710,15 +726,16 @@ export function getCollections(): CollectionSummary[] {
     WHERE collection IS NOT NULL
     GROUP BY collection
     ORDER BY MAX(creation_date) DESC
+    LIMIT ? OFFSET ?
   `);
 
-  const rows = stmt.all() as Array<{
+  const rows = stmt.all(limit, offset) as Array<{
     name: string;
     count: number;
     latestCreationDate: string | null;
   }>;
 
-  return rows;
+  return { collections: rows, total };
 }
 
 // Get transcripts in a collection

@@ -123,6 +123,8 @@ export function DocumentViewer() {
 
   // Collections state
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
+  const [totalCollections, setTotalCollections] = useState(0);
+  const [collectionsListCurrentPage, setCollectionsListCurrentPage] = useState(1);
   const [selectedCollection, setSelectedCollection] = useState<string | null>(getCollectionFromURL);
   const [collectionTranscripts, setCollectionTranscripts] = useState<CollectionTranscript[]>([]);
   const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
@@ -389,20 +391,25 @@ export function DocumentViewer() {
   }, [loadRecentFiles]);
 
   // Collections handlers
-  const loadCollections = useCallback(async () => {
+  const loadCollections = useCallback(async (page = 1) => {
     setIsLoadingCollections(true);
     try {
-      const response = await fetch("/api/collections");
+      const offset = (page - 1) * PAGE_SIZE;
+      const response = await fetch(`/api/collections?limit=${PAGE_SIZE}&offset=${offset}`);
       const data = await response.json();
       if (data.error) {
         setError(data.error);
         setCollections([]);
+        setTotalCollections(0);
       } else {
         setCollections(data.collections || []);
+        setTotalCollections(data.total || 0);
+        setCollectionsListCurrentPage(page);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load collections");
       setCollections([]);
+      setTotalCollections(0);
     } finally {
       setIsLoadingCollections(false);
     }
@@ -464,6 +471,10 @@ export function DocumentViewer() {
       loadCollectionTranscripts(selectedCollection, page);
     }
   }, [selectedCollection, loadCollectionTranscripts]);
+
+  const handleCollectionsListPageChange = useCallback((page: number) => {
+    loadCollections(page);
+  }, [loadCollections]);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   // This should only run once on mount - handleSearch and loadRecentFiles are stable enough
@@ -713,6 +724,9 @@ export function DocumentViewer() {
         ) : (
           <CollectionsView
             collections={collections}
+            totalCollections={totalCollections}
+            collectionsCurrentPage={collectionsListCurrentPage}
+            onCollectionsPageChange={handleCollectionsListPageChange}
             selectedCollection={selectedCollection}
             transcripts={collectionTranscripts}
             loading={isLoadingCollections}

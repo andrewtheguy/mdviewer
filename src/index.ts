@@ -318,10 +318,24 @@ app.get("/api/search/stats", async (_req, res) => {
 });
 
 // Collections API Routes
-app.get("/api/collections", (_req, res) => {
+app.get("/api/collections", (req, res) => {
   try {
-    const collections = getCollections();
-    res.json({ collections });
+    // Parse and validate limit
+    let limit = parseInt((req.query.limit as string) || "50", 10);
+    if (isNaN(limit) || limit < 0) {
+      limit = 50;
+    } else if (limit > 100) {
+      limit = 100;
+    }
+
+    // Parse and validate offset
+    let offset = parseInt((req.query.offset as string) || "0", 10);
+    if (isNaN(offset) || offset < 0) {
+      offset = 0;
+    }
+
+    const result = getCollections({ limit, offset });
+    res.json(result);
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to get collections",

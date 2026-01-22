@@ -19,6 +19,9 @@ export interface CollectionTranscript {
 
 interface CollectionsViewProps {
   collections: CollectionSummary[];
+  totalCollections: number;
+  collectionsCurrentPage: number;
+  onCollectionsPageChange: (page: number) => void;
   selectedCollection: string | null;
   transcripts: CollectionTranscript[];
   loading: boolean;
@@ -69,6 +72,9 @@ function formatISODate(isoDate: string | null): string {
 
 export function CollectionsView({
   collections,
+  totalCollections,
+  collectionsCurrentPage,
+  onCollectionsPageChange,
   selectedCollection,
   transcripts,
   loading,
@@ -81,7 +87,8 @@ export function CollectionsView({
   totalTranscripts,
   onPageChange,
 }: CollectionsViewProps) {
-  const totalPages = pageSize <= 0 ? 0 : Math.ceil(totalTranscripts / pageSize);
+  const totalTranscriptPages = pageSize <= 0 ? 0 : Math.ceil(totalTranscripts / pageSize);
+  const totalCollectionPages = pageSize <= 0 ? 0 : Math.ceil(totalCollections / pageSize);
 
   if (loading) {
     return (
@@ -107,7 +114,7 @@ export function CollectionsView({
       <div className="space-y-4">
         <div className="bg-muted/30 p-3 rounded-lg border">
           <div className="text-sm font-medium">
-            Collections <span className="text-muted-foreground font-normal">({collections.length})</span>
+            Collections <span className="text-muted-foreground font-normal">({totalCollections})</span>
           </div>
         </div>
 
@@ -146,6 +153,15 @@ export function CollectionsView({
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          currentPage={collectionsCurrentPage}
+          totalPages={totalCollectionPages}
+          totalItems={totalCollections}
+          pageSize={pageSize}
+          loading={loading}
+          onPageChange={onCollectionsPageChange}
+        />
       </div>
     );
   }
@@ -248,7 +264,7 @@ export function CollectionsView({
 
           <Pagination
             currentPage={currentPage}
-            totalPages={totalPages}
+            totalPages={totalTranscriptPages}
             totalItems={totalTranscripts}
             pageSize={pageSize}
             loading={loading}
