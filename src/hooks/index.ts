@@ -7,6 +7,9 @@ export {
   type CollectionTitle,
   type CollectionTranscript,
   type UseCollectionsReturn,
+  type SortField,
+  type SortOrder,
+  type SortState,
 } from "./useCollections";
 export {
   PAGE_SIZE,

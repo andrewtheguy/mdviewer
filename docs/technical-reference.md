@@ -19,23 +19,21 @@ The main table storing document metadata and content.
 | `key` | TEXT UNIQUE | Full S3 object key (path to file) |
 | `name` | TEXT | File basename (filename only) |
 | `extension` | TEXT | File extension (txt, md, etc.) |
-| `path` | TEXT | Directory path (everything before filename) |
 | `size` | INTEGER | File size in bytes |
 | `last_modified` | INTEGER | Unix timestamp of last modification |
 | `last_modified_iso` | TEXT | ISO 8601 datetime string |
 | `content` | TEXT | Full file content |
 | `content_preview` | TEXT | First 500 characters of content |
-| `collection` | TEXT | Collection name from metadata (nullable) |
-| `title` | TEXT | Title from metadata (nullable) |
-| `creation_date` | INTEGER | Unix timestamp from metadata (nullable) |
-| `creation_date_iso` | TEXT | ISO 8601 creation date (nullable) |
-| `has_metadata` | INTEGER | Boolean flag (0/1) indicating if metadata.json was found |
+| `collection` | TEXT | Collection name from metadata |
+| `title` | TEXT | Title from metadata |
+| `creation_date` | INTEGER | Unix timestamp from metadata |
+| `creation_date_iso` | TEXT | ISO 8601 creation date |
 
 #### `documents_fts`
 
 FTS5 virtual table for full-text search, automatically synchronized with `documents` via triggers.
 
-**Indexed columns:** `name`, `content`, `path`, `key`, `collection`, `title`
+**Indexed columns:** `name`, `content`, `collection`, `title`
 
 **Tokenizer:** Porter stemmer with unicode61 support
 
@@ -52,7 +50,7 @@ Tracks schema version across reindexes.
 
 - `idx_documents_key` - On `key` for fast lookups
 - `idx_documents_creation_date` - On `creation_date` DESC for sorting recent items
-- `idx_documents_collection_title` - On `(collection, title)`
+- `idx_documents_collection_title_name` - **UNIQUE** on `(collection, title, name)` - prevents duplicate filenames within collection+title
 - `idx_documents_collection_creation_date` - On `(collection, creation_date DESC)`
 - `idx_documents_extension_creation_date` - On `(extension, creation_date DESC)`
 
@@ -60,7 +58,7 @@ Tracks schema version across reindexes.
 
 The FTS table stays in sync with the documents table automatically via triggers:
 
-- `documents_ai` (AFTER INSERT) - Syncs inserts to FTS table
+- `documents_ai` (AFTER INSERT) - Syncs `name`, `content`, `collection`, `title` to FTS table
 - `documents_ad` (AFTER DELETE) - Syncs deletes from FTS table
 - `documents_au` (AFTER UPDATE) - Syncs updates to FTS table
 
@@ -85,6 +83,7 @@ The reindex process rebuilds the search index from S3 storage. It runs asynchron
 
 3. **Filter Indexable Files**
    - Only `.txt` and `.md` files are processed
+   - If `S3_INDEX_PREFIX` is set, only files under that prefix are considered
 
 4. **Group by Folder**
    - Files are organized by their directory path
@@ -94,6 +93,7 @@ The reindex process rebuilds the search index from S3 storage. It runs asynchron
    - Up to 10 concurrent metadata fetches
    - 30-second timeout per file
    - Results are cached to avoid redundant fetches
+   - **Files in folders without `metadata.json` are skipped**
 
 6. **Process Each File (Batched)**
    - Fetches full content from S3 (30-second timeout)
@@ -153,30 +153,49 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 
 ### Fields
 
-| Field | Type | Required* | Description |
-|-------|------|-----------|-------------|
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
 | `type` | string | Yes | Must be `"transcribefoldermetadata"` |
 | `version` | number | No | Schema version number |
 | `collection` | string | Yes | Collection/category name |
 | `title` | string | Yes | Title for the folder's contents |
 | `creation_date` | string | No | ISO 8601 datetime, overrides S3 lastModified |
 
-*Required if `metadata.json` is present. The `metadata.json` file itself is optional.
+**Important:** The `metadata.json` file is **required** for a folder's files to be indexed. Files in folders without valid `metadata.json` are skipped during reindex.
 
 ### Behavior
 
 - All files in a folder inherit metadata from that folder's `metadata.json`
-- If `metadata.json` is missing, `collection` and `title` are null
+- **Files in folders without `metadata.json` are skipped during indexing**
 - If `creation_date` is valid, it overrides S3's lastModified timestamp
 - If `creation_date` is invalid or missing, falls back to S3's lastModified
-- The `has_metadata` flag indicates whether metadata was found (1) or not (0)
 
 ### Error Handling
 
-- Missing metadata files silently return null (metadata is optional)
-- JSON parse errors are logged as warnings
+- Missing metadata files cause the folder's files to be skipped
+- JSON parse errors are logged as warnings (folder skipped)
 - Invalid dates are logged as warnings with fallback to S3 timestamp
 - Fetch timeouts (30 seconds) are logged as warnings
+
+## Environment Variables
+
+### S3 Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `S3_ENDPOINT` | Yes | S3-compatible endpoint URL |
+| `S3_ACCESS_KEY_ID` | Yes | S3 access key |
+| `S3_SECRET_ACCESS_KEY` | Yes | S3 secret key |
+| `S3_BUCKET` | Yes | S3 bucket name |
+| `S3_REGION` | No | S3 region (default: `us-east-1`) |
+| `S3_INDEX_PREFIX` | No | Only index files with keys starting with this prefix |
+
+### Other Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SQLITE_DB_PATH` | No | Path to SQLite database (default: `./data/search.sqlite`) |
+| `JOB_RUNNER_URL` | No | URL for job runner service (default: `http://localhost:3001`) |
 
 ## API Endpoints
 

@@ -5,7 +5,6 @@ import { Eye, Download, FileText } from "lucide-react";
 export interface RecentFile {
   key: string;
   name: string;
-  path: string;
   size: number;
   lastModified: number;
   lastModifiedISO: string;

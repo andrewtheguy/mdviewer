@@ -4,7 +4,7 @@ import fs from "fs";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -12,7 +12,6 @@ export interface S3FileDocument {
   key: string;
   name: string;
   extension: string;
-  path: string;
   size: number;
   lastModified: number;
   lastModifiedISO: string;
@@ -22,7 +21,6 @@ export interface S3FileDocument {
   title: string | null;
   creationDate: number | null;
   creationDateISO: string | null;
-  hasMetadata: boolean;
 }
 
 // Encode S3 key to safe ID (base64url)
@@ -31,6 +29,7 @@ export function keyToId(key: string): string {
 }
 
 const DB_PATH = process.env.SQLITE_DB_PATH || "./data/search.sqlite";
+const S3_INDEX_PREFIX = process.env.S3_INDEX_PREFIX || "";
 
 // Shared documents table definition
 const DOCUMENTS_TABLE_DEFINITION = `
@@ -40,7 +39,6 @@ const DOCUMENTS_TABLE_DEFINITION = `
     key TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     extension TEXT NOT NULL,
-    path TEXT NOT NULL,
     size INTEGER NOT NULL,
     last_modified INTEGER NOT NULL,
     last_modified_iso TEXT NOT NULL,
@@ -49,15 +47,14 @@ const DOCUMENTS_TABLE_DEFINITION = `
     collection TEXT,
     title TEXT,
     creation_date INTEGER,
-    creation_date_iso TEXT,
-    has_metadata INTEGER DEFAULT 0
+    creation_date_iso TEXT
   );
 `;
 
 // Shared FTS5 table definition
 const FTS_TABLE_DEFINITION = `
   CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-    name, content, path, key, collection, title,
+    name, content, collection, title,
     content='documents',
     content_rowid='rowid',
     tokenize='porter unicode61'
@@ -75,24 +72,49 @@ const SCHEMA_VERSION_TABLE = `
 // Shared trigger definitions to keep FTS in sync with main table
 const TRIGGER_DEFINITIONS = `
   CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-    INSERT INTO documents_fts(rowid, name, content, path, key, collection, title)
-    VALUES (new.rowid, new.name, new.content, new.path, new.key, new.collection, new.title);
+    INSERT INTO documents_fts(rowid, name, content, collection, title)
+    VALUES (new.rowid, new.name, new.content, new.collection, new.title);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key, collection, title)
-    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key, old.collection, old.title);
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, collection, title)
+    VALUES ('delete', old.rowid, old.name, old.content, old.collection, old.title);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key, collection, title)
-    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key, old.collection, old.title);
-    INSERT INTO documents_fts(rowid, name, content, path, key, collection, title)
-    VALUES (new.rowid, new.name, new.content, new.path, new.key, new.collection, new.title);
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, collection, title)
+    VALUES ('delete', old.rowid, old.name, old.content, old.collection, old.title);
+    INSERT INTO documents_fts(rowid, name, content, collection, title)
+    VALUES (new.rowid, new.name, new.content, new.collection, new.title);
   END;
 `;
 
+// Index definitions
+const INDEX_DEFINITIONS = `
+  CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
+  CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_title_name ON documents(collection, title, name);
+  CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
+`;
+
+// Combined schema DDL (used by both initializeSchema and clearDocuments)
+const SCHEMA_DDL = `
+  ${DOCUMENTS_TABLE_DEFINITION}
+  ${FTS_TABLE_DEFINITION}
+  ${TRIGGER_DEFINITIONS}
+  ${INDEX_DEFINITIONS}
+`;
+
 let db: Database.Database | null = null;
+
+// Generate a sortable key for natural sorting
+// Pads numeric portions with zeros so lexicographic sort works correctly
+// e.g., "file2" -> "file00000002", "file10" -> "file00000010"
+function naturalSortKey(str: string): string {
+  if (str == null) return "";
+  return str.replace(/\d+/g, (match) => match.padStart(10, "0")).toLowerCase();
+}
 
 function getDatabase(): Database.Database {
   if (db) {
@@ -109,6 +131,12 @@ function getDatabase(): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("cache_size = -64000"); // 64MB cache
+
+  // Register natural sort key function for proper alphanumeric ordering
+  // e.g., "file2" comes before "file10"
+  db.function("natural_sort_key", { deterministic: true }, (value: unknown) => {
+    return naturalSortKey(value == null ? "" : String(value));
+  });
 
   initializeSchema(db);
 
@@ -169,20 +197,8 @@ function initializeSchema(database: Database.Database): void {
   // Create schema_version table first (preserved across reindexes)
   database.exec(SCHEMA_VERSION_TABLE);
 
-  // Create tables and triggers only if they don't exist (preserves data across restarts)
-  database.exec(`
-    ${DOCUMENTS_TABLE_DEFINITION}
-
-    ${FTS_TABLE_DEFINITION}
-
-    ${TRIGGER_DEFINITIONS}
-
-    CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-    CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
-    CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
-    CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
-    CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
-  `);
+  // Create tables, triggers, and indexes (preserves data across restarts)
+  database.exec(SCHEMA_DDL);
 }
 
 // Prepare FTS5 query - escape special characters and add prefix matching
@@ -217,6 +233,15 @@ export interface SearchResult {
 export interface SearchOptions {
   limit?: number;
   offset?: number;
+}
+
+// Sorting types
+export type SortField = "name" | "date";
+export type SortOrder = "asc" | "desc";
+
+export interface SortOptions {
+  sortBy?: SortField;
+  sortOrder?: SortOrder;
 }
 
 const DEFAULT_LIMIT = 20;
@@ -264,7 +289,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
       d.key,
       d.name,
       d.extension,
-      d.path,
       d.size,
       d.last_modified as lastModified,
       d.last_modified_iso as lastModifiedISO,
@@ -274,7 +298,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
       d.title,
       d.creation_date as creationDate,
       d.creation_date_iso as creationDateISO,
-      d.has_metadata as hasMetadata,
       highlight(documents_fts, 0, '<mark>', '</mark>') as highlighted_name,
       snippet(documents_fts, 1, '<mark>', '</mark>', '...', 32) as highlighted_content,
       bm25(documents_fts) as rank
@@ -290,7 +313,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     key: string;
     name: string;
     extension: string;
-    path: string;
     size: number;
     lastModified: number;
     lastModifiedISO: string;
@@ -300,7 +322,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     title: string | null;
     creationDate: number | null;
     creationDateISO: string | null;
-    hasMetadata: number;
     highlighted_name: string;
     highlighted_content: string;
     rank: number;
@@ -311,7 +332,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     key: row.key,
     name: row.name,
     extension: row.extension,
-    path: row.path,
     size: row.size,
     lastModified: row.lastModified,
     lastModifiedISO: row.lastModifiedISO,
@@ -321,7 +341,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     title: row.title,
     creationDate: row.creationDate,
     creationDateISO: row.creationDateISO,
-    hasMetadata: row.hasMetadata === 1,
     _formatted: {
       name: row.highlighted_name,
       content: row.highlighted_content,
@@ -341,10 +360,10 @@ export function addDocuments(docs: S3FileDocument[]): void {
 
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO documents
-      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview,
-       collection, title, creation_date, creation_date_iso, has_metadata)
+      (id, key, name, extension, size, last_modified, last_modified_iso, content, content_preview,
+       collection, title, creation_date, creation_date_iso)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = database.transaction((documents: S3FileDocument[]) => {
@@ -354,7 +373,6 @@ export function addDocuments(docs: S3FileDocument[]): void {
         doc.key,
         doc.name,
         doc.extension,
-        doc.path,
         doc.size,
         doc.lastModified,
         doc.lastModifiedISO,
@@ -363,8 +381,7 @@ export function addDocuments(docs: S3FileDocument[]): void {
         doc.collection,
         doc.title,
         doc.creationDate,
-        doc.creationDateISO,
-        doc.hasMetadata ? 1 : 0
+        doc.creationDateISO
       );
     }
   });
@@ -377,32 +394,21 @@ export function addDocuments(docs: S3FileDocument[]): void {
 function clearDocuments(): void {
   const database = getDatabase();
 
-  // Drop triggers, FTS table, and truncate documents table to avoid
-  // firing the delete trigger for each row (much faster for large datasets).
+  // Drop triggers, FTS table, and documents table to avoid firing the delete
+  // trigger for each row (much faster for large datasets), then recreate.
   // Wrapped in a transaction to ensure atomicity.
-  const rebuildFts = database.transaction(() => {
+  const rebuildSchema = database.transaction(() => {
     database.exec(`
       DROP TRIGGER IF EXISTS documents_ai;
       DROP TRIGGER IF EXISTS documents_ad;
       DROP TRIGGER IF EXISTS documents_au;
       DROP TABLE IF EXISTS documents_fts;
       DROP TABLE IF EXISTS documents;
-
-      ${DOCUMENTS_TABLE_DEFINITION}
-
-      ${FTS_TABLE_DEFINITION}
-
-      ${TRIGGER_DEFINITIONS}
-
-      CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-      CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
-      CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
-      CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
-      CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
     `);
+    database.exec(SCHEMA_DDL);
   });
 
-  rebuildFts();
+  rebuildSchema();
 }
 
 export interface IndexStats {
@@ -463,7 +469,6 @@ export interface RecentDocumentsOptions {
 export interface RecentDocument {
   key: string;
   name: string;
-  path: string;
   size: number;
   lastModified: number | null;
   lastModifiedISO: string | null;
@@ -498,7 +503,7 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
 
   // Get paginated results sorted by creation date (most recent first)
   const stmt = database.prepare(`
-    SELECT key, name, path, size,
+    SELECT key, name, size,
            last_modified as lastModified, last_modified_iso as lastModifiedISO,
            collection, title, creation_date as creationDate, creation_date_iso as creationDateISO
     FROM documents
@@ -510,7 +515,6 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   const rows = stmt.all(...filterParams, limit, offset) as Array<{
     key: string;
     name: string;
-    path: string;
     size: number;
     lastModified: number | null;
     lastModifiedISO: string | null;
@@ -681,11 +685,13 @@ export interface CollectionsResult {
   total: number;
 }
 
-// Get all collections (with pagination)
-export function getCollections(options: { limit?: number; offset?: number } = {}): CollectionsResult {
+// Get all collections (with pagination and sorting)
+export function getCollections(options: { limit?: number; offset?: number; sortBy?: SortField; sortOrder?: SortOrder } = {}): CollectionsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+  const sortBy = options.sortBy ?? "date";
+  const sortOrder = options.sortOrder ?? "desc";
 
   // Get total count of distinct collections for pagination
   const countStmt = database.prepare(`
@@ -696,6 +702,12 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
   const countResult = countStmt.get() as { count: number };
   const total = countResult.count;
 
+  // Build ORDER BY clause based on sort options
+  // Use natural_sort_key() for name sorting to get proper alphanumeric order
+  const orderByClause = sortBy === "name"
+    ? `natural_sort_key(collection) ${sortOrder === "asc" ? "ASC" : "DESC"}`
+    : `MAX(creation_date) ${sortOrder === "asc" ? "ASC" : "DESC"}`;
+
   const stmt = database.prepare(`
     SELECT
       collection as name,
@@ -703,7 +715,7 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
     FROM documents
     WHERE collection IS NOT NULL
     GROUP BY collection
-    ORDER BY MAX(creation_date) DESC
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `);
 
@@ -727,11 +739,13 @@ export interface CollectionTitlesResult {
 // Get titles grouped within a collection
 export function getCollectionTitles(
   collection: string,
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; sortBy?: SortField; sortOrder?: SortOrder } = {}
 ): CollectionTitlesResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+  const sortBy = options.sortBy ?? "date";
+  const sortOrder = options.sortOrder ?? "desc";
 
   // Get total count of distinct titles in this collection for pagination
   const countStmt = database.prepare(`
@@ -742,7 +756,13 @@ export function getCollectionTitles(
   const countResult = countStmt.get(collection) as { count: number };
   const total = countResult.count;
 
-  // Get paginated titles sorted by latest creation date DESC
+  // Build ORDER BY clause based on sort options
+  // Use natural_sort_key() for name sorting to get proper alphanumeric order
+  const orderByClause = sortBy === "name"
+    ? `natural_sort_key(COALESCE(title, '__NO_TITLE_e4f7b2c9__')) ${sortOrder === "asc" ? "ASC" : "DESC"}`
+    : `MAX(creation_date) ${sortOrder === "asc" ? "ASC" : "DESC"}`;
+
+  // Get paginated titles sorted by specified field
   const stmt = database.prepare(`
     SELECT
       COALESCE(title, '__NO_TITLE_e4f7b2c9__') as title,
@@ -750,7 +770,7 @@ export function getCollectionTitles(
     FROM documents
     WHERE collection = ?
     GROUP BY COALESCE(title, '__NO_TITLE_e4f7b2c9__')
-    ORDER BY MAX(creation_date) DESC
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `);
 
@@ -769,12 +789,14 @@ export function getCollectionTitles(
 // When title is undefined, no title filter is applied
 export function getCollectionTranscripts(
   collection: string,
-  options: { limit?: number; offset?: number; title?: string | null } = {}
+  options: { limit?: number; offset?: number; title?: string | null; sortBy?: SortField; sortOrder?: SortOrder } = {}
 ): CollectionTranscriptsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
   const titleFilter = options.title;
+  const sortBy = options.sortBy ?? "date";
+  const sortOrder = options.sortOrder ?? "desc";
 
   // Build WHERE clause based on title filter
   let whereClause = "WHERE collection = ?";
@@ -800,12 +822,18 @@ export function getCollectionTranscripts(
   const countResult = countStmt.get(...countParams) as { count: number };
   const total = countResult.count;
 
-  // Get paginated transcripts sorted by creation date DESC
+  // Build ORDER BY clause based on sort options
+  // Use natural_sort_key() for name sorting to get proper alphanumeric order
+  const orderByClause = sortBy === "name"
+    ? `natural_sort_key(name) ${sortOrder === "asc" ? "ASC" : "DESC"}`
+    : `creation_date ${sortOrder === "asc" ? "ASC" : "DESC"}`;
+
+  // Get paginated transcripts sorted by specified field
   const stmt = database.prepare(`
     SELECT key, name, title, creation_date as creationDate, creation_date_iso as creationDateISO, size
     FROM documents
     ${whereClause}
-    ORDER BY creation_date DESC
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `);
 
@@ -971,15 +999,16 @@ export async function runReindex(): Promise<void> {
     const listResult = await s3.list();
     const objects = listResult.contents || [];
 
-    result.total = objects.length;
+    // Filter by extension and optional S3 prefix
+    const indexableObjects = objects
+      .filter((obj) => obj.key && isIndexable(obj.key))
+      .filter((obj) => !S3_INDEX_PREFIX || obj.key!.startsWith(S3_INDEX_PREFIX));
 
-    const indexableObjects = objects.filter(
-      (obj) => obj.key && isIndexable(obj.key)
-    );
-    result.skipped = objects.length - indexableObjects.length;
-    reindexStatus.progress.total = indexableObjects.length;
+    if (S3_INDEX_PREFIX) {
+      console.log(`[Reindex] Filtering by prefix: "${S3_INDEX_PREFIX}"`);
+    }
     console.log(
-      `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} indexable`
+      `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} with indexable extensions`
     );
 
     // Group files by folder to fetch metadata once per folder
@@ -1016,13 +1045,29 @@ export async function runReindex(): Promise<void> {
     const foldersWithMetadata = Array.from(folderMetadataCache.values()).filter(m => m !== null).length;
     console.log(`[Reindex] Found metadata.json in ${foldersWithMetadata}/${filesByFolder.size} folders`);
 
+    // Filter to only files with valid metadata and compute accurate totals
+    const validIndexableObjects = indexableObjects.filter((obj) => {
+      const folderPath = getPath(obj.key!);
+      return folderMetadataCache.get(folderPath) !== null;
+    });
+    result.total = indexableObjects.length;
+    result.skipped = indexableObjects.length - validIndexableObjects.length;
+    reindexStatus.progress.total = validIndexableObjects.length;
+
+    console.log(
+      `[Reindex] ${validIndexableObjects.length} files have valid metadata and will be indexed`
+    );
+
     let pendingDocuments: S3FileDocument[] = [];
     let processedCount = 0;
 
-    for (let i = 0; i < indexableObjects.length; i++) {
-      const obj = indexableObjects[i]!;
+    for (let i = 0; i < validIndexableObjects.length; i++) {
+      const obj = validIndexableObjects[i]!;
       const key = obj.key!;
       const folderPath = getPath(key);
+
+      // Get metadata for this file's folder (guaranteed to exist after filtering)
+      const metadata = folderMetadataCache.get(folderPath)!;
 
       try {
         const content = await withTimeout(
@@ -1034,9 +1079,6 @@ export async function runReindex(): Promise<void> {
         const lastModified = obj.lastModified
           ? new Date(obj.lastModified)
           : new Date();
-
-        // Get metadata for this file's folder
-        const metadata = folderMetadataCache.get(folderPath) ?? null;
 
         // Determine creation date - use metadata if available and valid, otherwise S3 lastModified
         let creationDate: Date;
@@ -1061,17 +1103,15 @@ export async function runReindex(): Promise<void> {
           key,
           name: getBasename(key),
           extension: getExtension(key),
-          path: folderPath,
           size: obj.size ?? 0,
           lastModified: lastModified.getTime(),
           lastModifiedISO: lastModified.toISOString(),
           content,
           contentPreview,
-          collection: metadata?.collection ?? null,
-          title: metadata?.title ?? null,
+          collection: metadata.collection,
+          title: metadata.title,
           creationDate: creationDate.getTime(),
           creationDateISO,
-          hasMetadata: metadata !== null,
         });
       } catch (err) {
         console.error(`[Reindex] Failed to fetch "${key}":`, err);
@@ -1091,9 +1131,9 @@ export async function runReindex(): Promise<void> {
 
       processedCount++;
       reindexStatus.progress.current = processedCount;
-      if (processedCount % 100 === 0 || processedCount === indexableObjects.length) {
+      if (processedCount % 100 === 0 || processedCount === validIndexableObjects.length) {
         console.log(
-          `[Reindex] Processed ${processedCount}/${indexableObjects.length} files (indexed: ${result.indexed})...`
+          `[Reindex] Processed ${processedCount}/${validIndexableObjects.length} files (indexed: ${result.indexed})...`
         );
       }
     }
