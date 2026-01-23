@@ -1052,8 +1052,8 @@ export async function runReindex(): Promise<void> {
       const folderPath = getPath(obj.key!);
       return folderMetadataCache.get(folderPath) !== null;
     });
-    result.total = objects.length;
-    result.skipped = objects.length - validIndexableObjects.length;
+    result.total = indexableObjects.length;
+    result.skipped = indexableObjects.length - validIndexableObjects.length;
     reindexStatus.progress.total = validIndexableObjects.length;
 
     console.log(
