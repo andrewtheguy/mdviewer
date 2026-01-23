@@ -1035,6 +1035,9 @@ function deduplicateNames(): number {
       }>;
 
       // Rename all duplicates (append checksum to each)
+      // Note: Hidden files like ".gitignore" produce empty baseName, resulting in
+      // "_abc12345.gitignore". This is acceptable given the extreme unlikelihood of
+      // duplicate hidden files within the same (collection, title) group.
       for (const doc of docs) {
         const ext = doc.name.includes(".") ? "." + doc.name.split(".").pop() : "";
         const baseName = ext ? doc.name.slice(0, -ext.length) : doc.name;
