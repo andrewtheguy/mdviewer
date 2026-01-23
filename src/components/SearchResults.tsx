@@ -7,7 +7,6 @@ export interface SearchHit {
   key: string;
   name: string;
   extension: string;
-  path: string;
   size: number;
   lastModified: number;
   lastModifiedISO: string;

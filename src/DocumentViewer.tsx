@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults } from "@/components/SearchResults";
 import { RecentFiles } from "@/components/RecentFiles";
 import { CollectionsView } from "@/components/CollectionsView";
-import { Loader2, Clock, RotateCw, Library, X, ChevronLeft } from "lucide-react";
+import { Loader2, Clock, RotateCw, Library, ChevronLeft } from "lucide-react";
 import {
   usePreview,
   useSearch,

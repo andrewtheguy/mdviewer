@@ -4,7 +4,7 @@ import fs from "fs";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -12,7 +12,6 @@ export interface S3FileDocument {
   key: string;
   name: string;
   extension: string;
-  path: string;
   size: number;
   lastModified: number;
   lastModifiedISO: string;
@@ -31,6 +30,7 @@ export function keyToId(key: string): string {
 }
 
 const DB_PATH = process.env.SQLITE_DB_PATH || "./data/search.sqlite";
+const S3_INDEX_PREFIX = process.env.S3_INDEX_PREFIX || "";
 
 // Shared documents table definition
 const DOCUMENTS_TABLE_DEFINITION = `
@@ -40,7 +40,6 @@ const DOCUMENTS_TABLE_DEFINITION = `
     key TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     extension TEXT NOT NULL,
-    path TEXT NOT NULL,
     size INTEGER NOT NULL,
     last_modified INTEGER NOT NULL,
     last_modified_iso TEXT NOT NULL,
@@ -57,7 +56,7 @@ const DOCUMENTS_TABLE_DEFINITION = `
 // Shared FTS5 table definition
 const FTS_TABLE_DEFINITION = `
   CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-    name, content, path, key, collection, title,
+    name, content, collection, title,
     content='documents',
     content_rowid='rowid',
     tokenize='porter unicode61'
@@ -75,20 +74,20 @@ const SCHEMA_VERSION_TABLE = `
 // Shared trigger definitions to keep FTS in sync with main table
 const TRIGGER_DEFINITIONS = `
   CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-    INSERT INTO documents_fts(rowid, name, content, path, key, collection, title)
-    VALUES (new.rowid, new.name, new.content, new.path, new.key, new.collection, new.title);
+    INSERT INTO documents_fts(rowid, name, content, collection, title)
+    VALUES (new.rowid, new.name, new.content, new.collection, new.title);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key, collection, title)
-    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key, old.collection, old.title);
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, collection, title)
+    VALUES ('delete', old.rowid, old.name, old.content, old.collection, old.title);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, path, key, collection, title)
-    VALUES ('delete', old.rowid, old.name, old.content, old.path, old.key, old.collection, old.title);
-    INSERT INTO documents_fts(rowid, name, content, path, key, collection, title)
-    VALUES (new.rowid, new.name, new.content, new.path, new.key, new.collection, new.title);
+    INSERT INTO documents_fts(documents_fts, rowid, name, content, collection, title)
+    VALUES ('delete', old.rowid, old.name, old.content, old.collection, old.title);
+    INSERT INTO documents_fts(rowid, name, content, collection, title)
+    VALUES (new.rowid, new.name, new.content, new.collection, new.title);
   END;
 `;
 
@@ -264,7 +263,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
       d.key,
       d.name,
       d.extension,
-      d.path,
       d.size,
       d.last_modified as lastModified,
       d.last_modified_iso as lastModifiedISO,
@@ -290,7 +288,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     key: string;
     name: string;
     extension: string;
-    path: string;
     size: number;
     lastModified: number;
     lastModifiedISO: string;
@@ -311,7 +308,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     key: row.key,
     name: row.name,
     extension: row.extension,
-    path: row.path,
     size: row.size,
     lastModified: row.lastModified,
     lastModifiedISO: row.lastModifiedISO,
@@ -341,10 +337,10 @@ export function addDocuments(docs: S3FileDocument[]): void {
 
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO documents
-      (id, key, name, extension, path, size, last_modified, last_modified_iso, content, content_preview,
+      (id, key, name, extension, size, last_modified, last_modified_iso, content, content_preview,
        collection, title, creation_date, creation_date_iso, has_metadata)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = database.transaction((documents: S3FileDocument[]) => {
@@ -354,7 +350,6 @@ export function addDocuments(docs: S3FileDocument[]): void {
         doc.key,
         doc.name,
         doc.extension,
-        doc.path,
         doc.size,
         doc.lastModified,
         doc.lastModifiedISO,
@@ -463,7 +458,6 @@ export interface RecentDocumentsOptions {
 export interface RecentDocument {
   key: string;
   name: string;
-  path: string;
   size: number;
   lastModified: number | null;
   lastModifiedISO: string | null;
@@ -498,7 +492,7 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
 
   // Get paginated results sorted by creation date (most recent first)
   const stmt = database.prepare(`
-    SELECT key, name, path, size,
+    SELECT key, name, size,
            last_modified as lastModified, last_modified_iso as lastModifiedISO,
            collection, title, creation_date as creationDate, creation_date_iso as creationDateISO
     FROM documents
@@ -510,7 +504,6 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   const rows = stmt.all(...filterParams, limit, offset) as Array<{
     key: string;
     name: string;
-    path: string;
     size: number;
     lastModified: number | null;
     lastModifiedISO: string | null;
@@ -973,10 +966,15 @@ export async function runReindex(): Promise<void> {
 
     result.total = objects.length;
 
-    const indexableObjects = objects.filter(
-      (obj) => obj.key && isIndexable(obj.key)
-    );
+    // Filter by extension and optional S3 prefix
+    const indexableObjects = objects
+      .filter((obj) => obj.key && isIndexable(obj.key))
+      .filter((obj) => !S3_INDEX_PREFIX || obj.key!.startsWith(S3_INDEX_PREFIX));
     result.skipped = objects.length - indexableObjects.length;
+
+    if (S3_INDEX_PREFIX) {
+      console.log(`[Reindex] Filtering by prefix: "${S3_INDEX_PREFIX}"`);
+    }
     reindexStatus.progress.total = indexableObjects.length;
     console.log(
       `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} indexable`
@@ -1024,6 +1022,15 @@ export async function runReindex(): Promise<void> {
       const key = obj.key!;
       const folderPath = getPath(key);
 
+      // Get metadata for this file's folder - skip files without metadata
+      const metadata = folderMetadataCache.get(folderPath) ?? null;
+      if (metadata === null) {
+        result.skipped++;
+        processedCount++;
+        reindexStatus.progress.current = processedCount;
+        continue;
+      }
+
       try {
         const content = await withTimeout(
           s3.file(key).text(),
@@ -1034,9 +1041,6 @@ export async function runReindex(): Promise<void> {
         const lastModified = obj.lastModified
           ? new Date(obj.lastModified)
           : new Date();
-
-        // Get metadata for this file's folder
-        const metadata = folderMetadataCache.get(folderPath) ?? null;
 
         // Determine creation date - use metadata if available and valid, otherwise S3 lastModified
         let creationDate: Date;
@@ -1061,17 +1065,16 @@ export async function runReindex(): Promise<void> {
           key,
           name: getBasename(key),
           extension: getExtension(key),
-          path: folderPath,
           size: obj.size ?? 0,
           lastModified: lastModified.getTime(),
           lastModifiedISO: lastModified.toISOString(),
           content,
           contentPreview,
-          collection: metadata?.collection ?? null,
-          title: metadata?.title ?? null,
+          collection: metadata.collection,
+          title: metadata.title,
           creationDate: creationDate.getTime(),
           creationDateISO,
-          hasMetadata: metadata !== null,
+          hasMetadata: true,
         });
       } catch (err) {
         console.error(`[Reindex] Failed to fetch "${key}":`, err);
