@@ -80,7 +80,7 @@ function getRelativeTime(timestamp: number): string {
 function formatISODate(isoDate: string | null): string {
   if (!isoDate) return "Unknown";
   try {
-    return new Date(isoDate).toLocaleDateString();
+    return new Date(isoDate).toLocaleString();
   } catch {
     return "Unknown";
   }
