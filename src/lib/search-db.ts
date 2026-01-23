@@ -1005,14 +1005,12 @@ export async function runReindex(): Promise<void> {
     const indexableObjects = objects
       .filter((obj) => obj.key && isIndexable(obj.key))
       .filter((obj) => !S3_INDEX_PREFIX || obj.key!.startsWith(S3_INDEX_PREFIX));
-    result.skipped = objects.length - indexableObjects.length;
 
     if (S3_INDEX_PREFIX) {
       console.log(`[Reindex] Filtering by prefix: "${S3_INDEX_PREFIX}"`);
     }
-    reindexStatus.progress.total = indexableObjects.length;
     console.log(
-      `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} indexable`
+      `[Reindex] Found ${objects.length} total files, ${indexableObjects.length} with indexable extensions`
     );
 
     // Group files by folder to fetch metadata once per folder
@@ -1049,22 +1047,29 @@ export async function runReindex(): Promise<void> {
     const foldersWithMetadata = Array.from(folderMetadataCache.values()).filter(m => m !== null).length;
     console.log(`[Reindex] Found metadata.json in ${foldersWithMetadata}/${filesByFolder.size} folders`);
 
+    // Filter to only files with valid metadata and compute accurate totals
+    const validIndexableObjects = indexableObjects.filter((obj) => {
+      const folderPath = getPath(obj.key!);
+      return folderMetadataCache.get(folderPath) !== null;
+    });
+    result.total = objects.length;
+    result.skipped = objects.length - validIndexableObjects.length;
+    reindexStatus.progress.total = validIndexableObjects.length;
+
+    console.log(
+      `[Reindex] ${validIndexableObjects.length} files have valid metadata and will be indexed`
+    );
+
     let pendingDocuments: S3FileDocument[] = [];
     let processedCount = 0;
 
-    for (let i = 0; i < indexableObjects.length; i++) {
-      const obj = indexableObjects[i]!;
+    for (let i = 0; i < validIndexableObjects.length; i++) {
+      const obj = validIndexableObjects[i]!;
       const key = obj.key!;
       const folderPath = getPath(key);
 
-      // Get metadata for this file's folder - skip files without metadata
-      const metadata = folderMetadataCache.get(folderPath) ?? null;
-      if (metadata === null) {
-        result.skipped++;
-        processedCount++;
-        reindexStatus.progress.current = processedCount;
-        continue;
-      }
+      // Get metadata for this file's folder (guaranteed to exist after filtering)
+      const metadata = folderMetadataCache.get(folderPath)!;
 
       try {
         const content = await withTimeout(
@@ -1128,9 +1133,9 @@ export async function runReindex(): Promise<void> {
 
       processedCount++;
       reindexStatus.progress.current = processedCount;
-      if (processedCount % 100 === 0 || processedCount === indexableObjects.length) {
+      if (processedCount % 100 === 0 || processedCount === validIndexableObjects.length) {
         console.log(
-          `[Reindex] Processed ${processedCount}/${indexableObjects.length} files (indexed: ${result.indexed})...`
+          `[Reindex] Processed ${processedCount}/${validIndexableObjects.length} files (indexed: ${result.indexed})...`
         );
       }
     }
