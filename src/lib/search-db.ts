@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
@@ -982,6 +983,77 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
   }
 }
 
+// Generate short checksum suffix from key (first 8 chars of md5)
+function keyChecksum(key: string): string {
+  return crypto.createHash("md5").update(key).digest("hex").slice(0, 8);
+}
+
+// Deduplicate names within the same (collection, title) group by appending checksum suffix
+function deduplicateNames(): number {
+  const database = getDatabase();
+
+  // Find all (collection, title, name) groups with duplicates
+  const duplicatesStmt = database.prepare(`
+    SELECT collection, title, name, COUNT(*) as cnt
+    FROM documents
+    GROUP BY collection, title, name
+    HAVING COUNT(*) > 1
+  `);
+
+  const duplicateGroups = duplicatesStmt.all() as Array<{
+    collection: string | null;
+    title: string | null;
+    name: string;
+    cnt: number;
+  }>;
+
+  if (duplicateGroups.length === 0) {
+    return 0;
+  }
+
+  console.log(`[Reindex] Found ${duplicateGroups.length} groups with duplicate names`);
+
+  // For each group, get all documents and rename them with checksum suffix
+  const selectStmt = database.prepare(`
+    SELECT rowid, key, name
+    FROM documents
+    WHERE collection IS ? AND title IS ? AND name = ?
+  `);
+
+  const updateStmt = database.prepare(`
+    UPDATE documents SET name = ? WHERE rowid = ?
+  `);
+
+  let renamed = 0;
+
+  const renameTransaction = database.transaction(() => {
+    for (const group of duplicateGroups) {
+      const docs = selectStmt.all(group.collection, group.title, group.name) as Array<{
+        rowid: number;
+        key: string;
+        name: string;
+      }>;
+
+      // Rename all duplicates (append checksum to each)
+      // Note: Hidden files like ".gitignore" produce empty baseName, resulting in
+      // "_abc12345.gitignore". This is acceptable given the extreme unlikelihood of
+      // duplicate hidden files within the same (collection, title) group.
+      for (const doc of docs) {
+        const ext = doc.name.includes(".") ? "." + doc.name.split(".").pop() : "";
+        const baseName = ext ? doc.name.slice(0, -ext.length) : doc.name;
+        const newName = `${baseName}_${keyChecksum(doc.key)}${ext}`;
+        updateStmt.run(newName, doc.rowid);
+        renamed++;
+      }
+    }
+  });
+
+  renameTransaction();
+  console.log(`[Reindex] Renamed ${renamed} documents to resolve duplicates`);
+
+  return renamed;
+}
+
 export async function runReindex(): Promise<void> {
   const result = {
     total: 0,
@@ -1147,6 +1219,9 @@ export async function runReindex(): Promise<void> {
         result.errors += pendingDocuments.length;
       }
     }
+
+    // Deduplicate names within the same (collection, title) group
+    deduplicateNames();
 
     // Update schema version on successful reindex
     setSchemaVersion(SCHEMA_VERSION);
