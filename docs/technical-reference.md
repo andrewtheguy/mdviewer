@@ -51,7 +51,7 @@ Tracks schema version across reindexes.
 
 - `idx_documents_key` - On `key` for fast lookups
 - `idx_documents_creation_date` - On `creation_date` DESC for sorting recent items
-- `idx_documents_collection_title` - On `(collection, title)`
+- `idx_documents_collection_title_name` - **UNIQUE** on `(collection, title, name)` - prevents duplicate filenames within collection+title
 - `idx_documents_collection_creation_date` - On `(collection, creation_date DESC)`
 - `idx_documents_extension_creation_date` - On `(extension, creation_date DESC)`
 

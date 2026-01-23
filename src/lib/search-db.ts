@@ -91,6 +91,23 @@ const TRIGGER_DEFINITIONS = `
   END;
 `;
 
+// Index definitions
+const INDEX_DEFINITIONS = `
+  CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
+  CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_title_name ON documents(collection, title, name);
+  CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
+`;
+
+// Combined schema DDL (used by both initializeSchema and clearDocuments)
+const SCHEMA_DDL = `
+  ${DOCUMENTS_TABLE_DEFINITION}
+  ${FTS_TABLE_DEFINITION}
+  ${TRIGGER_DEFINITIONS}
+  ${INDEX_DEFINITIONS}
+`;
+
 let db: Database.Database | null = null;
 
 function getDatabase(): Database.Database {
@@ -168,20 +185,8 @@ function initializeSchema(database: Database.Database): void {
   // Create schema_version table first (preserved across reindexes)
   database.exec(SCHEMA_VERSION_TABLE);
 
-  // Create tables and triggers only if they don't exist (preserves data across restarts)
-  database.exec(`
-    ${DOCUMENTS_TABLE_DEFINITION}
-
-    ${FTS_TABLE_DEFINITION}
-
-    ${TRIGGER_DEFINITIONS}
-
-    CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-    CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
-    CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
-    CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
-    CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
-  `);
+  // Create tables, triggers, and indexes (preserves data across restarts)
+  database.exec(SCHEMA_DDL);
 }
 
 // Prepare FTS5 query - escape special characters and add prefix matching
@@ -372,32 +377,21 @@ export function addDocuments(docs: S3FileDocument[]): void {
 function clearDocuments(): void {
   const database = getDatabase();
 
-  // Drop triggers, FTS table, and truncate documents table to avoid
-  // firing the delete trigger for each row (much faster for large datasets).
+  // Drop triggers, FTS table, and documents table to avoid firing the delete
+  // trigger for each row (much faster for large datasets), then recreate.
   // Wrapped in a transaction to ensure atomicity.
-  const rebuildFts = database.transaction(() => {
+  const rebuildSchema = database.transaction(() => {
     database.exec(`
       DROP TRIGGER IF EXISTS documents_ai;
       DROP TRIGGER IF EXISTS documents_ad;
       DROP TRIGGER IF EXISTS documents_au;
       DROP TABLE IF EXISTS documents_fts;
       DROP TABLE IF EXISTS documents;
-
-      ${DOCUMENTS_TABLE_DEFINITION}
-
-      ${FTS_TABLE_DEFINITION}
-
-      ${TRIGGER_DEFINITIONS}
-
-      CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
-      CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
-      CREATE INDEX IF NOT EXISTS idx_documents_collection_title ON documents(collection, title);
-      CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
-      CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
     `);
+    database.exec(SCHEMA_DDL);
   });
 
-  rebuildFts();
+  rebuildSchema();
 }
 
 export interface IndexStats {
