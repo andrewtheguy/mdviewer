@@ -26,21 +26,10 @@ npm install
 
 ## Configuration
 
-Create a `.env` file with the following variables:
+Copy `.env.example` to `.env` and configure your environment variables:
 
-```env
-# S3 Configuration
-S3_ENDPOINT=https://your-s3-endpoint.com
-S3_ACCESS_KEY_ID=your-access-key
-S3_SECRET_ACCESS_KEY=your-secret-key
-S3_BUCKET=your-bucket-name
-S3_REGION=us-east-1
-
-# SQLite Database Path (optional, defaults to ./data/search.sqlite)
-SQLITE_DB_PATH=./data/search.sqlite
-
-# Job Runner URL (optional, defaults to http://localhost:3001)
-JOB_RUNNER_URL=http://localhost:3001
+```bash
+cp .env.example .env
 ```
 
 ## Running
