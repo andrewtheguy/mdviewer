@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults } from "@/components/SearchResults";
 import { RecentFiles } from "@/components/RecentFiles";
 import { CollectionsView } from "@/components/CollectionsView";
-import { Loader2, Clock, RotateCw, Library, X } from "lucide-react";
+import { Loader2, Clock, RotateCw, Library, X, ChevronLeft } from "lucide-react";
 import {
   usePreview,
   useSearch,
@@ -446,7 +446,12 @@ export function DocumentViewer() {
           {preview.previewFile ? (
             // Inline preview
             <div className="border-0 sm:border rounded-none sm:rounded-lg">
-              <div className="flex items-center justify-between gap-3 p-4 sm:p-4 border-b bg-muted/50">
+              <div className="flex items-center gap-3 p-4 sm:p-4 border-b bg-muted/50">
+                <Button variant="ghost" size="sm" onClick={preview.closePreview} className="gap-2 shrink-0" aria-label="Close preview">
+                  <ChevronLeft className="size-4" />
+                  Back
+                </Button>
+                <div className="h-4 w-px bg-border shrink-0" />
                 <div className="flex flex-col flex-1 min-w-0">
                   {preview.previewMetadata?.collection && (
                     <span className="text-xs text-muted-foreground">{preview.previewMetadata.collection}</span>
@@ -461,9 +466,6 @@ export function DocumentViewer() {
                     </span>
                   )}
                 </div>
-                <Button variant="ghost" size="icon" onClick={preview.closePreview} className="size-8" aria-label="Close preview">
-                  <X className="size-4" />
-                </Button>
               </div>
               <div className="p-4 sm:p-6">
                 {preview.previewLoading ? (
