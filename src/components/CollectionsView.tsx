@@ -1,6 +1,15 @@
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/Pagination";
-import { Eye, Download, FileText, ChevronLeft, FolderOpen, BookOpen } from "lucide-react";
+import { Eye, Download, FileText, ChevronLeft, FolderOpen, BookOpen, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+
+// Sorting types (mirrored from hook)
+export type SortField = "name" | "date";
+export type SortOrder = "asc" | "desc";
+
+export interface SortState {
+  sortBy: SortField;
+  sortOrder: SortOrder;
+}
 
 export interface CollectionSummary {
   name: string;
@@ -46,6 +55,13 @@ interface CollectionsViewProps {
   pageSize: number;
   totalTranscripts: number;
   onPageChange: (page: number) => void;
+  // Sorting
+  collectionSort: SortState;
+  titleSort: SortState;
+  transcriptSort: SortState;
+  onCollectionSortChange: (sort: SortState) => void;
+  onTitleSortChange: (sort: SortState) => void;
+  onTranscriptSortChange: (sort: SortState) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -86,6 +102,51 @@ function formatISODate(isoDate: string | null): string {
   }
 }
 
+// Sortable column header component
+function SortableHeader({
+  label,
+  field,
+  currentSort,
+  onSort,
+  align = "left",
+}: {
+  label: string;
+  field: SortField;
+  currentSort: SortState;
+  onSort: (sort: SortState) => void;
+  align?: "left" | "right";
+}) {
+  const isActive = currentSort.sortBy === field;
+
+  const handleClick = () => {
+    if (isActive) {
+      // Toggle order if already sorting by this field
+      onSort({ sortBy: field, sortOrder: currentSort.sortOrder === "asc" ? "desc" : "asc" });
+    } else {
+      // Default to descending when switching to a new field
+      onSort({ sortBy: field, sortOrder: "desc" });
+    }
+  };
+
+  const SortIcon = isActive
+    ? currentSort.sortOrder === "asc"
+      ? ArrowUp
+      : ArrowDown
+    : ArrowUpDown;
+
+  return (
+    <th
+      className={`p-3 font-medium cursor-pointer hover:bg-muted/70 select-none ${align === "right" ? "text-right" : "text-left"}`}
+      onClick={handleClick}
+    >
+      <div className={`flex items-center gap-1 ${align === "right" ? "justify-end" : ""}`}>
+        <span>{label}</span>
+        <SortIcon className={`size-3 ${isActive ? "opacity-100" : "opacity-50"}`} />
+      </div>
+    </th>
+  );
+}
+
 export function CollectionsView({
   collections,
   totalCollections,
@@ -109,6 +170,12 @@ export function CollectionsView({
   pageSize,
   totalTranscripts,
   onPageChange,
+  collectionSort,
+  titleSort,
+  transcriptSort,
+  onCollectionSortChange,
+  onTitleSortChange,
+  onTranscriptSortChange,
 }: CollectionsViewProps) {
   const totalTranscriptPages = pageSize <= 0 ? 0 : Math.ceil(totalTranscripts / pageSize);
   const totalCollectionPages = pageSize <= 0 ? 0 : Math.ceil(totalCollections / pageSize);
@@ -146,8 +213,19 @@ export function CollectionsView({
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="text-left p-3 font-medium">Collection</th>
-                <th className="text-right p-3 font-medium">Latest</th>
+                <SortableHeader
+                  label="Collection"
+                  field="name"
+                  currentSort={collectionSort}
+                  onSort={onCollectionSortChange}
+                />
+                <SortableHeader
+                  label="Latest"
+                  field="date"
+                  currentSort={collectionSort}
+                  onSort={onCollectionSortChange}
+                  align="right"
+                />
               </tr>
             </thead>
             <tbody>
@@ -223,8 +301,19 @@ export function CollectionsView({
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="text-left p-3 font-medium">Title</th>
-                <th className="text-right p-3 font-medium">Latest</th>
+                <SortableHeader
+                  label="Title"
+                  field="name"
+                  currentSort={titleSort}
+                  onSort={onTitleSortChange}
+                />
+                <SortableHeader
+                  label="Latest"
+                  field="date"
+                  currentSort={titleSort}
+                  onSort={onTitleSortChange}
+                  align="right"
+                />
               </tr>
             </thead>
             <tbody>
@@ -291,8 +380,18 @@ export function CollectionsView({
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left p-3 font-medium">File</th>
-                  <th className="text-left p-3 font-medium">Created</th>
+                  <SortableHeader
+                    label="File"
+                    field="name"
+                    currentSort={transcriptSort}
+                    onSort={onTranscriptSortChange}
+                  />
+                  <SortableHeader
+                    label="Created"
+                    field="date"
+                    currentSort={transcriptSort}
+                    onSort={onTranscriptSortChange}
+                  />
                   <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>

@@ -223,6 +223,15 @@ export interface SearchOptions {
   offset?: number;
 }
 
+// Sorting types
+export type SortField = "name" | "date";
+export type SortOrder = "asc" | "desc";
+
+export interface SortOptions {
+  sortBy?: SortField;
+  sortOrder?: SortOrder;
+}
+
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 const MAX_OFFSET = 10000;
@@ -668,11 +677,13 @@ export interface CollectionsResult {
   total: number;
 }
 
-// Get all collections (with pagination)
-export function getCollections(options: { limit?: number; offset?: number } = {}): CollectionsResult {
+// Get all collections (with pagination and sorting)
+export function getCollections(options: { limit?: number; offset?: number; sortBy?: SortField; sortOrder?: SortOrder } = {}): CollectionsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+  const sortBy = options.sortBy ?? "date";
+  const sortOrder = options.sortOrder ?? "desc";
 
   // Get total count of distinct collections for pagination
   const countStmt = database.prepare(`
@@ -683,6 +694,10 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
   const countResult = countStmt.get() as { count: number };
   const total = countResult.count;
 
+  // Build ORDER BY clause based on sort options
+  const orderByColumn = sortBy === "name" ? "collection" : "MAX(creation_date)";
+  const orderDirection = sortOrder === "asc" ? "ASC" : "DESC";
+
   const stmt = database.prepare(`
     SELECT
       collection as name,
@@ -690,7 +705,7 @@ export function getCollections(options: { limit?: number; offset?: number } = {}
     FROM documents
     WHERE collection IS NOT NULL
     GROUP BY collection
-    ORDER BY MAX(creation_date) DESC
+    ORDER BY ${orderByColumn} ${orderDirection}
     LIMIT ? OFFSET ?
   `);
 
@@ -714,11 +729,13 @@ export interface CollectionTitlesResult {
 // Get titles grouped within a collection
 export function getCollectionTitles(
   collection: string,
-  options: { limit?: number; offset?: number } = {}
+  options: { limit?: number; offset?: number; sortBy?: SortField; sortOrder?: SortOrder } = {}
 ): CollectionTitlesResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
+  const sortBy = options.sortBy ?? "date";
+  const sortOrder = options.sortOrder ?? "desc";
 
   // Get total count of distinct titles in this collection for pagination
   const countStmt = database.prepare(`
@@ -729,7 +746,11 @@ export function getCollectionTitles(
   const countResult = countStmt.get(collection) as { count: number };
   const total = countResult.count;
 
-  // Get paginated titles sorted by latest creation date DESC
+  // Build ORDER BY clause based on sort options
+  const orderByColumn = sortBy === "name" ? "COALESCE(title, '__NO_TITLE_e4f7b2c9__')" : "MAX(creation_date)";
+  const orderDirection = sortOrder === "asc" ? "ASC" : "DESC";
+
+  // Get paginated titles sorted by specified field
   const stmt = database.prepare(`
     SELECT
       COALESCE(title, '__NO_TITLE_e4f7b2c9__') as title,
@@ -737,7 +758,7 @@ export function getCollectionTitles(
     FROM documents
     WHERE collection = ?
     GROUP BY COALESCE(title, '__NO_TITLE_e4f7b2c9__')
-    ORDER BY MAX(creation_date) DESC
+    ORDER BY ${orderByColumn} ${orderDirection}
     LIMIT ? OFFSET ?
   `);
 
@@ -756,12 +777,14 @@ export function getCollectionTitles(
 // When title is undefined, no title filter is applied
 export function getCollectionTranscripts(
   collection: string,
-  options: { limit?: number; offset?: number; title?: string | null } = {}
+  options: { limit?: number; offset?: number; title?: string | null; sortBy?: SortField; sortOrder?: SortOrder } = {}
 ): CollectionTranscriptsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
   const titleFilter = options.title;
+  const sortBy = options.sortBy ?? "date";
+  const sortOrder = options.sortOrder ?? "desc";
 
   // Build WHERE clause based on title filter
   let whereClause = "WHERE collection = ?";
@@ -787,12 +810,16 @@ export function getCollectionTranscripts(
   const countResult = countStmt.get(...countParams) as { count: number };
   const total = countResult.count;
 
-  // Get paginated transcripts sorted by creation date DESC
+  // Build ORDER BY clause based on sort options
+  const orderByColumn = sortBy === "name" ? "name" : "creation_date";
+  const orderDirection = sortOrder === "asc" ? "ASC" : "DESC";
+
+  // Get paginated transcripts sorted by specified field
   const stmt = database.prepare(`
     SELECT key, name, title, creation_date as creationDate, creation_date_iso as creationDateISO, size
     FROM documents
     ${whereClause}
-    ORDER BY creation_date DESC
+    ORDER BY ${orderByColumn} ${orderDirection}
     LIMIT ? OFFSET ?
   `);
 

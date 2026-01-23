@@ -9,6 +9,15 @@ import {
   updatePageInURL,
 } from "./utils";
 
+// Sorting types (mirrored from backend)
+export type SortField = "name" | "date";
+export type SortOrder = "asc" | "desc";
+
+export interface SortState {
+  sortBy: SortField;
+  sortOrder: SortOrder;
+}
+
 export interface CollectionSummary {
   name: string;
   count: number;
@@ -46,6 +55,10 @@ export interface UseCollectionsReturn {
   collectionTranscripts: CollectionTranscript[];
   collectionTotalTranscripts: number;
   collectionCurrentPage: number;
+  // Sorting state
+  collectionSort: SortState;
+  titleSort: SortState;
+  transcriptSort: SortState;
   // Actions
   loadCollections: (page?: number) => Promise<void>;
   loadCollectionTitles: (collection: string, page?: number) => Promise<void>;
@@ -61,6 +74,10 @@ export interface UseCollectionsReturn {
   setSelectedCollection: (collection: string | null) => void;
   setSelectedTitle: (title: string | null) => void;
   restoreCollectionsFromURL: () => void;
+  // Sorting actions
+  setCollectionSort: (sort: SortState) => void;
+  setTitleSort: (sort: SortState) => void;
+  setTranscriptSort: (sort: SortState) => void;
 }
 
 export function useCollections(onError: (error: string | null) => void): UseCollectionsReturn {
@@ -82,11 +99,17 @@ export function useCollections(onError: (error: string | null) => void): UseColl
   const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
   const [collectionCurrentPage, setCollectionCurrentPage] = useState(1);
 
-  const loadCollections = useCallback(async (page = 1) => {
+  // Sorting state
+  const [collectionSort, setCollectionSort] = useState<SortState>({ sortBy: "date", sortOrder: "desc" });
+  const [titleSort, setTitleSort] = useState<SortState>({ sortBy: "date", sortOrder: "desc" });
+  const [transcriptSort, setTranscriptSort] = useState<SortState>({ sortBy: "date", sortOrder: "desc" });
+
+  const loadCollections = useCallback(async (page = 1, sort?: SortState) => {
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
-      const response = await fetch(`/api/collections?limit=${PAGE_SIZE}&offset=${offset}`);
+      const currentSort = sort ?? collectionSort;
+      const response = await fetch(`/api/collections?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`);
       if (!response.ok) {
         const errorBody = await response.text();
         onError(`Failed to load collections: ${response.status} ${errorBody || response.statusText}`);
@@ -111,14 +134,15 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     } finally {
       setIsLoadingCollections(false);
     }
-  }, [onError]);
+  }, [onError, collectionSort]);
 
-  const loadCollectionTitles = useCallback(async (collection: string, page = 1) => {
+  const loadCollectionTitles = useCallback(async (collection: string, page = 1, sort?: SortState) => {
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
+      const currentSort = sort ?? titleSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}`
+        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`
       );
       if (!response.ok) {
         const errorBody = await response.text();
@@ -144,14 +168,15 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     } finally {
       setIsLoadingCollections(false);
     }
-  }, [onError]);
+  }, [onError, titleSort]);
 
-  const loadCollectionTranscripts = useCallback(async (collection: string, title: string, page = 1) => {
+  const loadCollectionTranscripts = useCallback(async (collection: string, title: string, page = 1, sort?: SortState) => {
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
+      const currentSort = sort ?? transcriptSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}`
+        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`
       );
       if (!response.ok) {
         const errorBody = await response.text();
@@ -177,7 +202,7 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     } finally {
       setIsLoadingCollections(false);
     }
-  }, [onError]);
+  }, [onError, transcriptSort]);
 
   const handleShowCollections = useCallback(() => {
     window.history.pushState({}, "", "/collections");
@@ -285,6 +310,26 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     }
   }, [loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
 
+  // Sort change handlers that reload data
+  const handleCollectionSortChange = useCallback((sort: SortState) => {
+    setCollectionSort(sort);
+    loadCollections(1, sort);
+  }, [loadCollections]);
+
+  const handleTitleSortChange = useCallback((sort: SortState) => {
+    setTitleSort(sort);
+    if (selectedCollection) {
+      loadCollectionTitles(selectedCollection, 1, sort);
+    }
+  }, [loadCollectionTitles, selectedCollection]);
+
+  const handleTranscriptSortChange = useCallback((sort: SortState) => {
+    setTranscriptSort(sort);
+    if (selectedCollection && selectedTitle) {
+      loadCollectionTranscripts(selectedCollection, selectedTitle, 1, sort);
+    }
+  }, [loadCollectionTranscripts, selectedCollection, selectedTitle]);
+
   return {
     collections,
     totalCollections,
@@ -298,6 +343,9 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     collectionTranscripts,
     collectionTotalTranscripts,
     collectionCurrentPage,
+    collectionSort,
+    titleSort,
+    transcriptSort,
     loadCollections,
     loadCollectionTitles,
     loadCollectionTranscripts,
@@ -312,5 +360,8 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     setSelectedCollection,
     setSelectedTitle,
     restoreCollectionsFromURL,
+    setCollectionSort: handleCollectionSortChange,
+    setTitleSort: handleTitleSortChange,
+    setTranscriptSort: handleTranscriptSortChange,
   };
 }

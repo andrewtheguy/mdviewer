@@ -534,6 +534,12 @@ export function DocumentViewer() {
               pageSize={PAGE_SIZE}
               totalTranscripts={collections.collectionTotalTranscripts}
               onPageChange={handleCollectionPageChange}
+              collectionSort={collections.collectionSort}
+              titleSort={collections.titleSort}
+              transcriptSort={collections.transcriptSort}
+              onCollectionSortChange={collections.setCollectionSort}
+              onTitleSortChange={collections.setTitleSort}
+              onTranscriptSortChange={collections.setTranscriptSort}
             />
           )}
         </div>

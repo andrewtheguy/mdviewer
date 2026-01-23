@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats, SCHEMA_VERSION, getSchemaVersion } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats, SCHEMA_VERSION, getSchemaVersion, type SortField, type SortOrder } from "./lib/search-db";
 
 // Validate and decode base64 URL-safe encoded key
 // Throws Error if input contains invalid base64url characters
@@ -50,6 +50,13 @@ function parsePagination(
   }
 
   return { limit, offset };
+}
+
+// Parse and validate sort parameters from query string
+function parseSortParams(query: { sortBy?: string; sortOrder?: string }): { sortBy?: SortField; sortOrder?: SortOrder } {
+  const sortBy = query.sortBy === "name" || query.sortBy === "date" ? query.sortBy : undefined;
+  const sortOrder = query.sortOrder === "asc" || query.sortOrder === "desc" ? query.sortOrder : undefined;
+  return { sortBy, sortOrder };
 }
 
 interface FetchWithTimeoutOptions extends RequestInit {
@@ -342,7 +349,8 @@ app.get("/api/search/stats", (_req, res) => {
 app.get("/api/collections", (req, res) => {
   try {
     const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
-    const result = getCollections({ limit, offset });
+    const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
+    const result = getCollections({ limit, offset, sortBy, sortOrder });
     res.json(result);
   } catch (error) {
     res.status(500).json({
@@ -355,8 +363,9 @@ app.get("/api/collections/:collection", (req, res) => {
   try {
     const { collection } = req.params;
     const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+    const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
     // Return grouped titles for this collection
-    const result = getCollectionTitles(collection, { limit, offset });
+    const result = getCollectionTitles(collection, { limit, offset, sortBy, sortOrder });
     res.json(result);
   } catch (error) {
     res.status(500).json({
@@ -371,8 +380,9 @@ app.get("/api/collections/:collection/transcripts/:title", (req, res) => {
     // Translate placeholder to null for querying documents with NULL title
     const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
     const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+    const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
     // Return transcripts for this specific title within the collection
-    const result = getCollectionTranscripts(collection, { limit, offset, title });
+    const result = getCollectionTranscripts(collection, { limit, offset, title, sortBy, sortOrder });
     res.json(result);
   } catch (error) {
     res.status(500).json({
