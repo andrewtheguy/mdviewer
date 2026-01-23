@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   PAGE_SIZE,
   isCollectionsViewFromURL,
@@ -6,17 +6,16 @@ import {
   getCollectionFromURL,
   getTitleFromURL,
   getPageFromURL,
-  updatePageInURL,
+  updatePageAndSortInURL,
+  getSortFromURL,
+  DEFAULT_SORT,
+  type SortState,
+  type SortField,
+  type SortOrder,
 } from "./utils";
 
-// Sorting types (mirrored from backend)
-export type SortField = "name" | "date";
-export type SortOrder = "asc" | "desc";
-
-export interface SortState {
-  sortBy: SortField;
-  sortOrder: SortOrder;
-}
+// Re-export sorting types from utils
+export type { SortField, SortOrder, SortState };
 
 export interface CollectionSummary {
   name: string;
@@ -99,17 +98,48 @@ export function useCollections(onError: (error: string | null) => void): UseColl
   const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
   const [collectionCurrentPage, setCollectionCurrentPage] = useState(1);
 
-  // Sorting state
-  const [collectionSort, setCollectionSort] = useState<SortState>({ sortBy: "date", sortOrder: "desc" });
-  const [titleSort, setTitleSort] = useState<SortState>({ sortBy: "date", sortOrder: "desc" });
-  const [transcriptSort, setTranscriptSort] = useState<SortState>({ sortBy: "date", sortOrder: "desc" });
+  // Sorting state - initialize from URL for the active view level
+  const [collectionSort, setCollectionSort] = useState<SortState>(() => {
+    // Only use URL sort if we're at collections list level
+    if (isCollectionsViewFromURL() && !getCollectionFromURL()) {
+      return getSortFromURL();
+    }
+    return DEFAULT_SORT;
+  });
+  const [titleSort, setTitleSort] = useState<SortState>(() => {
+    // Only use URL sort if we're at titles level
+    if (isCollectionsViewFromURL() && getCollectionFromURL() && !getTitleFromURL()) {
+      return getSortFromURL();
+    }
+    return DEFAULT_SORT;
+  });
+  const [transcriptSort, setTranscriptSort] = useState<SortState>(() => {
+    // Only use URL sort if we're at transcripts level
+    if (isCollectionsViewFromURL() && getCollectionFromURL() && getTitleFromURL()) {
+      return getSortFromURL();
+    }
+    return DEFAULT_SORT;
+  });
+
+  // AbortController refs for request cancellation to prevent race conditions
+  const collectionsAbortRef = useRef<AbortController | null>(null);
+  const titlesAbortRef = useRef<AbortController | null>(null);
+  const transcriptsAbortRef = useRef<AbortController | null>(null);
 
   const loadCollections = useCallback(async (page = 1, sort?: SortState) => {
+    // Abort any in-flight request
+    collectionsAbortRef.current?.abort();
+    const abortController = new AbortController();
+    collectionsAbortRef.current = abortController;
+
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const currentSort = sort ?? collectionSort;
-      const response = await fetch(`/api/collections?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`);
+      const response = await fetch(
+        `/api/collections?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        { signal: abortController.signal }
+      );
       if (!response.ok) {
         const errorBody = await response.text();
         onError(`Failed to load collections: ${response.status} ${errorBody || response.statusText}`);
@@ -128,21 +158,34 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setCollectionsListCurrentPage(page);
       }
     } catch (err) {
+      // Ignore aborted requests
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       onError(err instanceof Error ? err.message : "Failed to load collections");
       setCollections([]);
       setTotalCollections(0);
     } finally {
-      setIsLoadingCollections(false);
+      // Only clear loading if this request wasn't aborted
+      if (!abortController.signal.aborted) {
+        setIsLoadingCollections(false);
+      }
     }
   }, [onError, collectionSort]);
 
   const loadCollectionTitles = useCallback(async (collection: string, page = 1, sort?: SortState) => {
+    // Abort any in-flight request
+    titlesAbortRef.current?.abort();
+    const abortController = new AbortController();
+    titlesAbortRef.current = abortController;
+
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const currentSort = sort ?? titleSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`
+        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        { signal: abortController.signal }
       );
       if (!response.ok) {
         const errorBody = await response.text();
@@ -162,21 +205,34 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setTitlesCurrentPage(page);
       }
     } catch (err) {
+      // Ignore aborted requests
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       onError(err instanceof Error ? err.message : "Failed to load collection titles");
       setCollectionTitles([]);
       setTotalCollectionTitles(0);
     } finally {
-      setIsLoadingCollections(false);
+      // Only clear loading if this request wasn't aborted
+      if (!abortController.signal.aborted) {
+        setIsLoadingCollections(false);
+      }
     }
   }, [onError, titleSort]);
 
   const loadCollectionTranscripts = useCallback(async (collection: string, title: string, page = 1, sort?: SortState) => {
+    // Abort any in-flight request
+    transcriptsAbortRef.current?.abort();
+    const abortController = new AbortController();
+    transcriptsAbortRef.current = abortController;
+
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const currentSort = sort ?? transcriptSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`
+        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        { signal: abortController.signal }
       );
       if (!response.ok) {
         const errorBody = await response.text();
@@ -196,11 +252,18 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setCollectionCurrentPage(page);
       }
     } catch (err) {
+      // Ignore aborted requests
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       onError(err instanceof Error ? err.message : "Failed to load collection transcripts");
       setCollectionTranscripts([]);
       setCollectionTotalTranscripts(0);
     } finally {
-      setIsLoadingCollections(false);
+      // Only clear loading if this request wasn't aborted
+      if (!abortController.signal.aborted) {
+        setIsLoadingCollections(false);
+      }
     }
   }, [onError, transcriptSort]);
 
@@ -260,34 +323,36 @@ export function useCollections(onError: (error: string | null) => void): UseColl
 
   const handleTitlesPageChange = useCallback((page: number) => {
     if (selectedCollection) {
-      updatePageInURL(page);
-      loadCollectionTitles(selectedCollection, page);
+      updatePageAndSortInURL(page, titleSort);
+      loadCollectionTitles(selectedCollection, page, titleSort);
     }
-  }, [selectedCollection, loadCollectionTitles]);
+  }, [selectedCollection, loadCollectionTitles, titleSort]);
 
   const handleCollectionPageChange = useCallback((page: number) => {
     if (selectedCollection && selectedTitle) {
-      updatePageInURL(page);
-      loadCollectionTranscripts(selectedCollection, selectedTitle, page);
+      updatePageAndSortInURL(page, transcriptSort);
+      loadCollectionTranscripts(selectedCollection, selectedTitle, page, transcriptSort);
     }
-  }, [selectedCollection, selectedTitle, loadCollectionTranscripts]);
+  }, [selectedCollection, selectedTitle, loadCollectionTranscripts, transcriptSort]);
 
   const handleCollectionsListPageChange = useCallback((page: number) => {
-    updatePageInURL(page);
-    loadCollections(page);
-  }, [loadCollections]);
+    updatePageAndSortInURL(page, collectionSort);
+    loadCollections(page, collectionSort);
+  }, [loadCollections, collectionSort]);
 
   const restoreCollectionsFromURL = useCallback(() => {
     if (isCollectionsViewFromURL() || shouldRedirectToCollections()) {
       const collectionFromUrl = getCollectionFromURL();
       const titleFromUrl = getTitleFromURL();
       const pageFromUrl = getPageFromURL();
+      const sortFromUrl = getSortFromURL();
       if (collectionFromUrl && titleFromUrl) {
         // URL: /collections/:collection/:title
         setSelectedCollection(collectionFromUrl);
         setSelectedTitle(titleFromUrl);
         setCollectionCurrentPage(pageFromUrl);
-        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
+        setTranscriptSort(sortFromUrl);
+        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl, sortFromUrl);
       } else if (collectionFromUrl) {
         // URL: /collections/:collection
         setSelectedCollection(collectionFromUrl);
@@ -295,7 +360,8 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setCollectionTranscripts([]);
         setCollectionTotalTranscripts(0);
         setTitlesCurrentPage(pageFromUrl);
-        loadCollectionTitles(collectionFromUrl, pageFromUrl);
+        setTitleSort(sortFromUrl);
+        loadCollectionTitles(collectionFromUrl, pageFromUrl, sortFromUrl);
       } else {
         // URL: /collections
         setSelectedCollection(null);
@@ -305,20 +371,23 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setCollectionTranscripts([]);
         setCollectionTotalTranscripts(0);
         setCollectionsListCurrentPage(pageFromUrl);
-        loadCollections(pageFromUrl);
+        setCollectionSort(sortFromUrl);
+        loadCollections(pageFromUrl, sortFromUrl);
       }
     }
   }, [loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
 
-  // Sort change handlers that reload data
+  // Sort change handlers that reload data and update URL
   const handleCollectionSortChange = useCallback((sort: SortState) => {
     setCollectionSort(sort);
+    updatePageAndSortInURL(1, sort);
     loadCollections(1, sort);
   }, [loadCollections]);
 
   const handleTitleSortChange = useCallback((sort: SortState) => {
     setTitleSort(sort);
     if (selectedCollection) {
+      updatePageAndSortInURL(1, sort);
       loadCollectionTitles(selectedCollection, 1, sort);
     }
   }, [loadCollectionTitles, selectedCollection]);
@@ -326,6 +395,7 @@ export function useCollections(onError: (error: string | null) => void): UseColl
   const handleTranscriptSortChange = useCallback((sort: SortState) => {
     setTranscriptSort(sort);
     if (selectedCollection && selectedTitle) {
+      updatePageAndSortInURL(1, sort);
       loadCollectionTranscripts(selectedCollection, selectedTitle, 1, sort);
     }
   }, [loadCollectionTranscripts, selectedCollection, selectedTitle]);

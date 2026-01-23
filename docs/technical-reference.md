@@ -28,7 +28,6 @@ The main table storing document metadata and content.
 | `title` | TEXT | Title from metadata |
 | `creation_date` | INTEGER | Unix timestamp from metadata |
 | `creation_date_iso` | TEXT | ISO 8601 creation date |
-| `has_metadata` | INTEGER | Boolean flag (0/1), always 1 since metadata is required |
 
 #### `documents_fts`
 
@@ -170,7 +169,6 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 - **Files in folders without `metadata.json` are skipped during indexing**
 - If `creation_date` is valid, it overrides S3's lastModified timestamp
 - If `creation_date` is invalid or missing, falls back to S3's lastModified
-- The `has_metadata` flag is always 1 since only files with metadata are indexed
 
 ### Error Handling
 

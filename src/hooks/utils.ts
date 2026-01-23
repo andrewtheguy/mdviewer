@@ -106,6 +106,52 @@ export function getPreviewFromQueryParam(): string | null {
   return null;
 }
 
+// Sort types
+export type SortField = "name" | "date";
+export type SortOrder = "asc" | "desc";
+
+export interface SortState {
+  sortBy: SortField;
+  sortOrder: SortOrder;
+}
+
+// Default sort state
+export const DEFAULT_SORT: SortState = { sortBy: "date", sortOrder: "desc" };
+
+// Get sort state from URL query params
+export function getSortFromURL(): SortState {
+  const params = new URLSearchParams(window.location.search);
+  const sortBy = params.get("sortBy");
+  const sortOrder = params.get("sortOrder");
+  return {
+    sortBy: sortBy === "name" || sortBy === "date" ? sortBy : DEFAULT_SORT.sortBy,
+    sortOrder: sortOrder === "asc" || sortOrder === "desc" ? sortOrder : DEFAULT_SORT.sortOrder,
+  };
+}
+
+// Check if sort state is the default
+function isDefaultSort(sort: SortState): boolean {
+  return sort.sortBy === DEFAULT_SORT.sortBy && sort.sortOrder === DEFAULT_SORT.sortOrder;
+}
+
+// Update page and sort query params in URL and push to history
+export function updatePageAndSortInURL(page: number, sort: SortState): void {
+  const url = new URL(window.location.href);
+  if (page === 1) {
+    url.searchParams.delete("page");
+  } else {
+    url.searchParams.set("page", String(page));
+  }
+  if (isDefaultSort(sort)) {
+    url.searchParams.delete("sortBy");
+    url.searchParams.delete("sortOrder");
+  } else {
+    url.searchParams.set("sortBy", sort.sortBy);
+    url.searchParams.set("sortOrder", sort.sortOrder);
+  }
+  window.history.pushState({}, "", `${url.pathname}${url.search}`);
+}
+
 // Update page query param in URL and push to history
 export function updatePageInURL(page: number): void {
   const url = new URL(window.location.href);

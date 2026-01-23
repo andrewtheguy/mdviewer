@@ -4,7 +4,7 @@ import fs from "fs";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -21,7 +21,6 @@ export interface S3FileDocument {
   title: string | null;
   creationDate: number | null;
   creationDateISO: string | null;
-  hasMetadata: boolean;
 }
 
 // Encode S3 key to safe ID (base64url)
@@ -48,8 +47,7 @@ const DOCUMENTS_TABLE_DEFINITION = `
     collection TEXT,
     title TEXT,
     creation_date INTEGER,
-    creation_date_iso TEXT,
-    has_metadata INTEGER DEFAULT 0
+    creation_date_iso TEXT
   );
 `;
 
@@ -300,7 +298,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
       d.title,
       d.creation_date as creationDate,
       d.creation_date_iso as creationDateISO,
-      d.has_metadata as hasMetadata,
       highlight(documents_fts, 0, '<mark>', '</mark>') as highlighted_name,
       snippet(documents_fts, 1, '<mark>', '</mark>', '...', 32) as highlighted_content,
       bm25(documents_fts) as rank
@@ -325,7 +322,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     title: string | null;
     creationDate: number | null;
     creationDateISO: string | null;
-    hasMetadata: number;
     highlighted_name: string;
     highlighted_content: string;
     rank: number;
@@ -345,7 +341,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     title: row.title,
     creationDate: row.creationDate,
     creationDateISO: row.creationDateISO,
-    hasMetadata: row.hasMetadata === 1,
     _formatted: {
       name: row.highlighted_name,
       content: row.highlighted_content,
@@ -366,9 +361,9 @@ export function addDocuments(docs: S3FileDocument[]): void {
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO documents
       (id, key, name, extension, size, last_modified, last_modified_iso, content, content_preview,
-       collection, title, creation_date, creation_date_iso, has_metadata)
+       collection, title, creation_date, creation_date_iso)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertMany = database.transaction((documents: S3FileDocument[]) => {
@@ -386,8 +381,7 @@ export function addDocuments(docs: S3FileDocument[]): void {
         doc.collection,
         doc.title,
         doc.creationDate,
-        doc.creationDateISO,
-        doc.hasMetadata ? 1 : 0
+        doc.creationDateISO
       );
     }
   });
@@ -1115,7 +1109,6 @@ export async function runReindex(): Promise<void> {
           title: metadata.title,
           creationDate: creationDate.getTime(),
           creationDateISO,
-          hasMetadata: true,
         });
       } catch (err) {
         console.error(`[Reindex] Failed to fetch "${key}":`, err);
