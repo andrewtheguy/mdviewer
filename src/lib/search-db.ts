@@ -110,6 +110,14 @@ const SCHEMA_DDL = `
 
 let db: Database.Database | null = null;
 
+// Generate a sortable key for natural sorting
+// Pads numeric portions with zeros so lexicographic sort works correctly
+// e.g., "file2" -> "file00000002", "file10" -> "file00000010"
+function naturalSortKey(str: string): string {
+  if (str == null) return "";
+  return str.replace(/\d+/g, (match) => match.padStart(10, "0")).toLowerCase();
+}
+
 function getDatabase(): Database.Database {
   if (db) {
     return db;
@@ -125,6 +133,12 @@ function getDatabase(): Database.Database {
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = NORMAL");
   db.pragma("cache_size = -64000"); // 64MB cache
+
+  // Register natural sort key function for proper alphanumeric ordering
+  // e.g., "file2" comes before "file10"
+  db.function("natural_sort_key", { deterministic: true }, (value: unknown) => {
+    return naturalSortKey(value == null ? "" : String(value));
+  });
 
   initializeSchema(db);
 
@@ -695,8 +709,10 @@ export function getCollections(options: { limit?: number; offset?: number; sortB
   const total = countResult.count;
 
   // Build ORDER BY clause based on sort options
-  const orderByColumn = sortBy === "name" ? "collection" : "MAX(creation_date)";
-  const orderDirection = sortOrder === "asc" ? "ASC" : "DESC";
+  // Use natural_sort_key() for name sorting to get proper alphanumeric order
+  const orderByClause = sortBy === "name"
+    ? `natural_sort_key(collection) ${sortOrder === "asc" ? "ASC" : "DESC"}`
+    : `MAX(creation_date) ${sortOrder === "asc" ? "ASC" : "DESC"}`;
 
   const stmt = database.prepare(`
     SELECT
@@ -705,7 +721,7 @@ export function getCollections(options: { limit?: number; offset?: number; sortB
     FROM documents
     WHERE collection IS NOT NULL
     GROUP BY collection
-    ORDER BY ${orderByColumn} ${orderDirection}
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `);
 
@@ -747,8 +763,10 @@ export function getCollectionTitles(
   const total = countResult.count;
 
   // Build ORDER BY clause based on sort options
-  const orderByColumn = sortBy === "name" ? "COALESCE(title, '__NO_TITLE_e4f7b2c9__')" : "MAX(creation_date)";
-  const orderDirection = sortOrder === "asc" ? "ASC" : "DESC";
+  // Use natural_sort_key() for name sorting to get proper alphanumeric order
+  const orderByClause = sortBy === "name"
+    ? `natural_sort_key(COALESCE(title, '__NO_TITLE_e4f7b2c9__')) ${sortOrder === "asc" ? "ASC" : "DESC"}`
+    : `MAX(creation_date) ${sortOrder === "asc" ? "ASC" : "DESC"}`;
 
   // Get paginated titles sorted by specified field
   const stmt = database.prepare(`
@@ -758,7 +776,7 @@ export function getCollectionTitles(
     FROM documents
     WHERE collection = ?
     GROUP BY COALESCE(title, '__NO_TITLE_e4f7b2c9__')
-    ORDER BY ${orderByColumn} ${orderDirection}
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `);
 
@@ -811,15 +829,17 @@ export function getCollectionTranscripts(
   const total = countResult.count;
 
   // Build ORDER BY clause based on sort options
-  const orderByColumn = sortBy === "name" ? "name" : "creation_date";
-  const orderDirection = sortOrder === "asc" ? "ASC" : "DESC";
+  // Use natural_sort_key() for name sorting to get proper alphanumeric order
+  const orderByClause = sortBy === "name"
+    ? `natural_sort_key(name) ${sortOrder === "asc" ? "ASC" : "DESC"}`
+    : `creation_date ${sortOrder === "asc" ? "ASC" : "DESC"}`;
 
   // Get paginated transcripts sorted by specified field
   const stmt = database.prepare(`
     SELECT key, name, title, creation_date as creationDate, creation_date_iso as creationDateISO, size
     FROM documents
     ${whereClause}
-    ORDER BY ${orderByColumn} ${orderDirection}
+    ORDER BY ${orderByClause}
     LIMIT ? OFFSET ?
   `);
 
