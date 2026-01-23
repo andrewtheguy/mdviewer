@@ -85,57 +85,17 @@ Or use Docker Compose:
 docker-compose up
 ```
 
-## API Endpoints
-
-### Document Operations
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/documents/list` | List all documents (from database) |
-| GET | `/api/documents/recent` | List recent `.txt` and `.md` files |
-| GET | `/api/documents/download?key=<encoded>` | Download a file |
-| GET | `/api/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
-
-### Search Operations
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/search?q=<query>` | Search indexed files |
-| POST | `/api/search/reindex` | Trigger full reindex |
-| GET | `/api/search/reindex/status` | Check reindex status |
-| GET | `/api/search/stats` | Get index statistics |
-
-Note: File keys are base64url encoded in API requests.
-
 ## Search
 
 Only `.txt` and `.md` files are indexed for search. The search includes:
 
 - File names
 - File content
-- File paths
 
 Search results display highlighted matches and allow you to:
 - Preview the file
 - Download the file
 - Navigate to the file's folder
-
-## Project Structure
-
-```
-src/
-├── index.ts              # Server entry point with API routes
-├── job-runner.ts         # Background job runner
-├── components/
-│   ├── SearchBar.tsx     # Debounced search input
-│   ├── SearchResults.tsx # Search results display
-│   └── ui/               # shadcn/ui components
-└── lib/
-    ├── s3.ts             # S3 client wrapper
-    ├── search-db.ts      # SQLite FTS5 search
-    ├── indexer.ts        # File indexing pipeline
-    └── utils.ts          # Utility functions
-```
 
 ## Tech Stack
 
@@ -144,3 +104,11 @@ src/
 - **Search**: SQLite FTS5 (via better-sqlite3)
 - **Storage**: AWS SDK for S3-compatible storage
 - **Markdown**: react-markdown with @tailwindcss/typography
+
+## Documentation
+
+See [docs/technical-reference.md](docs/technical-reference.md) for detailed documentation on:
+- Database schema
+- Reindex flow
+- Metadata JSON format
+- API endpoints
