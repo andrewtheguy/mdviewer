@@ -152,13 +152,7 @@ export function updatePageAndSortInURL(page: number, sort: SortState): void {
   window.history.pushState({}, "", `${url.pathname}${url.search}`);
 }
 
-// Update page query param in URL and push to history
+// Update page query param in URL and push to history (preserves current sort)
 export function updatePageInURL(page: number): void {
-  const url = new URL(window.location.href);
-  if (page === 1) {
-    url.searchParams.delete("page");
-  } else {
-    url.searchParams.set("page", String(page));
-  }
-  window.history.pushState({}, "", `${url.pathname}${url.search}`);
+  updatePageAndSortInURL(page, getSortFromURL());
 }

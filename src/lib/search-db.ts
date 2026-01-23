@@ -999,8 +999,6 @@ export async function runReindex(): Promise<void> {
     const listResult = await s3.list();
     const objects = listResult.contents || [];
 
-    result.total = objects.length;
-
     // Filter by extension and optional S3 prefix
     const indexableObjects = objects
       .filter((obj) => obj.key && isIndexable(obj.key))
