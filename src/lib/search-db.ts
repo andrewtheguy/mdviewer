@@ -4,7 +4,7 @@ import fs from "fs";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -93,7 +93,6 @@ const TRIGGER_DEFINITIONS = `
 const INDEX_DEFINITIONS = `
   CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
   CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_collection_title_name ON documents(collection, title, name);
   CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
   CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
 `;
