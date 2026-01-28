@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 4;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -63,12 +63,19 @@ const FTS_TABLE_DEFINITION = `
 `;
 
 // Schema version table - preserved across reindexes
-// last_source_timestamp: Max chapter_updated_date in seconds (for sync logic)
-// last_synced_at: Date.now() in milliseconds (for debugging)
 const SCHEMA_VERSION_TABLE = `
   CREATE TABLE IF NOT EXISTS schema_version (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    version INTEGER NOT NULL,
+    version INTEGER NOT NULL
+  );
+`;
+
+// Sync status table - tracks incremental sync state
+// last_source_timestamp: Max chapter_updated_date in seconds (for sync logic)
+// last_synced_at: Date.now() in milliseconds (for debugging)
+const SYNC_STATUS_TABLE = `
+  CREATE TABLE IF NOT EXISTS sync_status (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
     last_source_timestamp INTEGER,
     last_synced_at INTEGER
   );
@@ -200,6 +207,9 @@ registerExitHandlers();
 function initializeSchema(database: Database.Database): void {
   // Create schema_version table first (preserved across reindexes)
   database.exec(SCHEMA_VERSION_TABLE);
+
+  // Create sync_status table (preserved across reindexes)
+  database.exec(SYNC_STATUS_TABLE);
 
   // Create tables, triggers, and indexes (preserves data across restarts)
   database.exec(SCHEMA_DDL);
@@ -394,12 +404,12 @@ export function addDocuments(docs: S3FileDocument[]): void {
 }
 
 // Clear all documents (private - used by runReindex)
-// Does NOT drop schema_version table
+// Does NOT drop schema_version table, but DOES drop sync_status table
 function clearDocuments(): void {
   const database = getDatabase();
 
-  // Drop triggers, FTS table, and documents table to avoid firing the delete
-  // trigger for each row (much faster for large datasets), then recreate.
+  // Drop triggers, FTS table, documents table, and sync_status to avoid firing
+  // the delete trigger for each row (much faster for large datasets), then recreate.
   // Wrapped in a transaction to ensure atomicity.
   const rebuildSchema = database.transaction(() => {
     database.exec(`
@@ -408,8 +418,10 @@ function clearDocuments(): void {
       DROP TRIGGER IF EXISTS documents_au;
       DROP TABLE IF EXISTS documents_fts;
       DROP TABLE IF EXISTS documents;
+      DROP TABLE IF EXISTS sync_status;
     `);
     database.exec(SCHEMA_DDL);
+    database.exec(SYNC_STATUS_TABLE);
   });
 
   rebuildSchema();
@@ -867,10 +879,10 @@ export function setSchemaVersion(version: number): void {
   `).run(version);
 }
 
-// Sync timestamp functions
+// Sync timestamp functions (using sync_status table)
 export function getLastSourceTimestamp(): number | null {
   const database = getDatabase();
-  const stmt = database.prepare("SELECT last_source_timestamp FROM schema_version WHERE id = 1");
+  const stmt = database.prepare("SELECT last_source_timestamp FROM sync_status WHERE id = 1");
   const result = stmt.get() as { last_source_timestamp: number | null } | undefined;
   return result?.last_source_timestamp ?? null;
 }
@@ -878,15 +890,15 @@ export function getLastSourceTimestamp(): number | null {
 export function setLastSourceTimestamp(timestamp: number): void {
   const database = getDatabase();
   database.prepare(`
-    UPDATE schema_version
-    SET last_source_timestamp = ?, last_synced_at = ?
-    WHERE id = 1
+    INSERT INTO sync_status (id, last_source_timestamp, last_synced_at)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET last_source_timestamp = excluded.last_source_timestamp, last_synced_at = excluded.last_synced_at
   `).run(timestamp, Date.now());
 }
 
 export function getLastSyncedAt(): number | null {
   const database = getDatabase();
-  const stmt = database.prepare("SELECT last_synced_at FROM schema_version WHERE id = 1");
+  const stmt = database.prepare("SELECT last_synced_at FROM sync_status WHERE id = 1");
   const result = stmt.get() as { last_synced_at: number | null } | undefined;
   return result?.last_synced_at ?? null;
 }
