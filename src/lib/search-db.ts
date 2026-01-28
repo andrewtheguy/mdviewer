@@ -208,7 +208,7 @@ function initializeSchema(database: Database.Database): void {
   // Create schema_version table first (preserved across reindexes)
   database.exec(SCHEMA_VERSION_TABLE);
 
-  // Create sync_status table (preserved across reindexes)
+  // Create sync_status table (preserved across restarts, cleared on full reindex)
   database.exec(SYNC_STATUS_TABLE);
 
   // Create tables, triggers, and indexes (preserves data across restarts)
@@ -1049,6 +1049,13 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
   }
 }
 
+// Validate that a value is a valid TimestampEntry
+function isValidTimestampEntry(value: unknown): value is TimestampEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.storage_prefix === "string" && typeof obj.chapter_updated_date === "string";
+}
+
 // Fetch and parse timestamp manifest from S3
 export async function fetchTimestampManifest(): Promise<TimestampEntry[] | null> {
   try {
@@ -1057,7 +1064,21 @@ export async function fetchTimestampManifest(): Promise<TimestampEntry[] | null>
       S3_FETCH_TIMEOUT_MS,
       "fetch timestamp manifest"
     );
-    return JSON.parse(content) as TimestampEntry[];
+    const parsed: unknown = JSON.parse(content);
+
+    // Validate array
+    if (!Array.isArray(parsed)) {
+      throw new Error("Timestamp manifest is not an array");
+    }
+
+    // Validate each entry
+    for (let i = 0; i < parsed.length; i++) {
+      if (!isValidTimestampEntry(parsed[i])) {
+        throw new Error(`Invalid timestamp entry at index ${i}: missing or invalid storage_prefix/chapter_updated_date`);
+      }
+    }
+
+    return parsed as TimestampEntry[];
   } catch (error) {
     if (isS3NotFoundError(error)) return null;
     throw error;
