@@ -60,7 +60,7 @@ The job runner handles background tasks like reindexing and incremental sync:
 npm run job-runner
 ```
 
-By default, the job runner periodically checks for updated files via a timestamp manifest (`transcripts/timestamp_v1.json`) and syncs only changed entries. This can be configured via environment variables (see `.env.example`).
+By default, the job runner periodically checks for updated files via a timestamp manifest (`manifest/timestamp_v1.json`) and syncs only changed entries. This can be configured via environment variables (see `.env.example`).
 
 ## Docker
 

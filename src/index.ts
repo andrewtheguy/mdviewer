@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats, SCHEMA_VERSION, getSchemaVersion, getSyncNeedsFullReindex, type SortField, type SortOrder } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionDocuments, getStats, SCHEMA_VERSION, getSchemaVersion, getSyncNeedsFullReindex, type SortField, type SortOrder } from "./lib/search-db";
 
 // Validate and decode base64 URL-safe encoded key
 // Throws Error if input contains invalid base64url characters
@@ -381,19 +381,19 @@ app.get("/api/collections/:collection", (req, res) => {
   }
 });
 
-app.get("/api/collections/:collection/transcripts/:title", (req, res) => {
+app.get("/api/collections/:collection/documents/:title", (req, res) => {
   try {
     const { collection, title: titleParam } = req.params;
     // Translate placeholder to null for querying documents with NULL title
     const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
     const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
     const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
-    // Return transcripts for this specific title within the collection
-    const result = getCollectionTranscripts(collection, { limit, offset, title, sortBy, sortOrder });
+    // Return documents for this specific title within the collection
+    const result = getCollectionDocuments(collection, { limit, offset, title, sortBy, sortOrder });
     res.json(result);
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to get collection transcripts",
+      error: error instanceof Error ? error.message : "Failed to get collection documents",
     });
   }
 });

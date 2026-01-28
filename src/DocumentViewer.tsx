@@ -48,7 +48,7 @@ export function DocumentViewer() {
     loadRecentFiles: typeof recent.loadRecentFiles;
     setSelectedCollection: typeof collections.setSelectedCollection;
     setSelectedTitle: typeof collections.setSelectedTitle;
-    loadCollectionTranscripts: typeof collections.loadCollectionTranscripts;
+    loadCollectionDocuments: typeof collections.loadCollectionDocuments;
     loadCollectionTitles: typeof collections.loadCollectionTitles;
     loadCollections: typeof collections.loadCollections;
   } | undefined>(undefined);
@@ -65,7 +65,7 @@ export function DocumentViewer() {
       loadRecentFiles: recent.loadRecentFiles,
       setSelectedCollection: collections.setSelectedCollection,
       setSelectedTitle: collections.setSelectedTitle,
-      loadCollectionTranscripts: collections.loadCollectionTranscripts,
+      loadCollectionDocuments: collections.loadCollectionDocuments,
       loadCollectionTitles: collections.loadCollectionTitles,
       loadCollections: collections.loadCollections,
     };
@@ -321,10 +321,10 @@ export function DocumentViewer() {
       const titleFromUrl = getTitleFromURL();
       const pageFromUrl = getPageFromURL();
       if (collectionFromUrl && titleFromUrl) {
-        // URL: /collections/:collection/:title - load transcripts for this title
+        // URL: /collections/:collection/:title - load documents for this title
         methods.setSelectedCollection(collectionFromUrl);
         methods.setSelectedTitle(titleFromUrl);
-        methods.loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl);
+        methods.loadCollectionDocuments(collectionFromUrl, titleFromUrl, pageFromUrl);
       } else if (collectionFromUrl) {
         // URL: /collections/:collection - load titles for this collection
         methods.setSelectedCollection(collectionFromUrl);
@@ -524,7 +524,7 @@ export function DocumentViewer() {
               selectedTitle={collections.selectedTitle}
               onSelectTitle={handleSelectTitle}
               onTitleBack={handleTitleBack}
-              transcripts={collections.collectionTranscripts}
+              documents={collections.collectionDocuments}
               loading={collections.isLoadingCollections}
               onSelectCollection={handleSelectCollection}
               onBack={handleCollectionBack}
@@ -532,14 +532,14 @@ export function DocumentViewer() {
               onDownload={handleDownload}
               currentPage={collections.collectionCurrentPage}
               pageSize={PAGE_SIZE}
-              totalTranscripts={collections.collectionTotalTranscripts}
+              totalDocuments={collections.collectionTotalDocuments}
               onPageChange={handleCollectionPageChange}
               collectionSort={collections.collectionSort}
               titleSort={collections.titleSort}
-              transcriptSort={collections.transcriptSort}
+              documentSort={collections.documentSort}
               onCollectionSortChange={collections.setCollectionSort}
               onTitleSortChange={collections.setTitleSort}
-              onTranscriptSortChange={collections.setTranscriptSort}
+              onDocumentSortChange={collections.setDocumentSort}
             />
           )}
         </div>
