@@ -229,7 +229,7 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | Yes | Must be `"transcribefoldermetadata"` |
-| `version` | number | No | Schema version number |
+| `version` | number | Yes | Must be `1` |
 | `collection` | string | Yes | Collection/category name |
 | `title` | string | Yes | Title for the folder's contents |
 | `creation_date` | string | No | ISO 8601 datetime, overrides S3 lastModified |

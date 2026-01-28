@@ -1021,6 +1021,12 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
       return null;
     }
 
+    // Validate version (must be 1)
+    if (metadata.version !== 1) {
+      console.warn(`[Reindex] Invalid metadata version at ${metadataKey}: expected 1, got "${metadata.version}"`);
+      return null;
+    }
+
     // Validate required fields
     if (typeof metadata.collection !== "string" || typeof metadata.title !== "string") {
       console.warn(`[Reindex] Missing collection or title in metadata at ${metadataKey}`);
