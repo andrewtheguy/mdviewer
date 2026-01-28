@@ -23,7 +23,11 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 const PORT = process.env.JOB_RUNNER_PORT || 3001;
-const SYNC_CHECK_INTERVAL_S = parseInt(process.env.SYNC_CHECK_INTERVAL_S || "900", 10); // Default 15 minutes
+const DEFAULT_SYNC_INTERVAL_S = 900; // 15 minutes
+const parsedSyncInterval = parseInt(process.env.SYNC_CHECK_INTERVAL_S || "", 10);
+const SYNC_CHECK_INTERVAL_S = Number.isInteger(parsedSyncInterval) && parsedSyncInterval > 0
+  ? parsedSyncInterval
+  : DEFAULT_SYNC_INTERVAL_S;
 const SYNC_ENABLED = process.env.SYNC_ENABLED !== "false";
 const S3_INDEX_PREFIX = process.env.S3_INDEX_PREFIX || "";
 
@@ -93,11 +97,14 @@ async function checkAndSync(): Promise<void> {
     const prefixes = entriesToSync.map(e => e.storage_prefix);
     const result = await reindexPaths(prefixes);
 
-    // Update timestamp to max of synced entries
-    const maxTimestamp = Math.max(...entriesToSync.map(e => e.timestampSeconds));
-    setLastSourceTimestamp(maxTimestamp);
-
-    console.log(`[Sync] Complete: indexed=${result.indexed}, errors=${result.errors}, new timestamp=${maxTimestamp}`);
+    // Only update timestamp if no errors (so failed entries are retried next sync)
+    if (result.errors === 0) {
+      const maxTimestamp = Math.max(...entriesToSync.map(e => e.timestampSeconds));
+      setLastSourceTimestamp(maxTimestamp);
+      console.log(`[Sync] Complete: indexed=${result.indexed}, new timestamp=${maxTimestamp}`);
+    } else {
+      console.log(`[Sync] Complete with errors: indexed=${result.indexed}, errors=${result.errors} (timestamp not updated, will retry)`);
+    }
   } catch (error) {
     console.error("[Sync] Error during sync check:", error);
   } finally {
