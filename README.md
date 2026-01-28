@@ -12,6 +12,7 @@ A web-based markdown viewer from S3 storage and full-text search powered by SQLi
 - Full-text search across `.txt` and `.md` files using SQLite FTS5
 - Highlighted search results with content preview
 - Folder navigation and file management
+- Incremental sync for updated files via timestamp manifest
 
 ## Prerequisites
 
@@ -53,11 +54,13 @@ The app will be available at http://localhost:3000
 
 ### Job Runner
 
-The job runner handles background tasks like reindexing:
+The job runner handles background tasks like reindexing and incremental sync:
 
 ```bash
 npm run job-runner
 ```
+
+By default, the job runner periodically checks for updated files via a timestamp manifest (`transcripts/timestamp_v1.json`) and syncs only changed entries. This can be configured via environment variables (see `.env.example`).
 
 ## Docker
 

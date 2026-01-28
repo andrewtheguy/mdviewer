@@ -46,6 +46,16 @@ Tracks schema version across reindexes.
 | `id` | INTEGER PRIMARY KEY | Always 1 (single row) |
 | `version` | INTEGER | Current schema version |
 
+#### `sync_status`
+
+Tracks incremental sync state. Preserved across restarts, cleared on full reindex.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PRIMARY KEY | Always 1 (single row) |
+| `last_source_timestamp` | INTEGER | Max `chapter_updated_date` in Unix seconds |
+| `last_synced_at` | INTEGER | `Date.now()` in milliseconds when last sync ran |
+
 ### Indexes
 
 - `idx_documents_key` - On `key` for fast lookups
@@ -129,6 +139,69 @@ The reindex status can be checked via `GET /api/search/reindex/status`:
 }
 ```
 
+## Incremental Sync
+
+The job runner supports incremental sync to update only changed entries without a full reindex. This is controlled by a timestamp manifest file in S3.
+
+### How It Works
+
+1. **Periodic Check** - The job runner checks for updates at a configurable interval (default: 15 minutes)
+2. **Fetch Manifest** - Reads `transcripts/timestamp_v1.json` from S3
+3. **Compare Timestamps** - Compares each entry's `chapter_updated_date` against the stored `last_source_timestamp`
+4. **Partial Reindex** - Only entries with timestamps >= the stored timestamp are reindexed
+5. **Update Timestamp** - On success (no errors), stores the max timestamp for future comparisons
+
+### Timestamp Manifest Format
+
+The manifest file `transcripts/timestamp_v1.json` is a JSON array of entries:
+
+```json
+[
+  {
+    "storage_prefix": "transcripts/folder1/",
+    "chapter_updated_date": "2024-01-15T10:30:00.000Z"
+  },
+  {
+    "storage_prefix": "transcripts/folder2/",
+    "chapter_updated_date": "2024-01-16T14:00:00.000Z"
+  }
+]
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `storage_prefix` | string | S3 path prefix to reindex |
+| `chapter_updated_date` | string | ISO 8601 datetime of last update |
+
+### Sync Behavior
+
+| Scenario | Behavior |
+|----------|----------|
+| Manifest missing | Logs info, skips sync |
+| Invalid JSON | Throws error, skips sync |
+| DB timestamp is null | Sets `needsFullReindex` flag, blocks API |
+| DB timestamp < earliest manifest entry | Sets `needsFullReindex` flag, blocks API |
+| Sync errors during partial reindex | Timestamp not updated, failed entries retry next sync |
+| Reindex or sync already running | Skips (mutual exclusion) |
+
+### Sync Status
+
+Check sync status via `GET /sync/status` on the job runner (port 3001):
+
+```json
+{
+  "enabled": true,
+  "intervalS": 900,
+  "lastSourceTimestamp": 1705315800,
+  "lastSyncedAt": 1705316000000,
+  "needsFullReindex": false
+}
+```
+
+### Full Reindex Required
+
+When the sync detects that the database is too far behind (timestamp is null or older than the earliest manifest entry), it sets `needsFullReindex` to true. This blocks the API (returns 503) until a full reindex is completed.
+
 ## Metadata JSON Format
 
 Each folder in S3 can contain a `metadata.json` file that provides metadata for all files in that folder.
@@ -197,6 +270,13 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | `SQLITE_DB_PATH` | No | Path to SQLite database (default: `./data/search.sqlite`) |
 | `JOB_RUNNER_URL` | No | URL for job runner service (default: `http://localhost:3001`) |
 
+### Sync Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SYNC_ENABLED` | No | Enable periodic sync checks (default: `true`, set to `false` to disable) |
+| `SYNC_CHECK_INTERVAL_S` | No | Interval between sync checks in seconds (default: `900` = 15 minutes). Must be a positive integer; invalid values cause startup failure. |
+
 ## API Endpoints
 
 ### Document Operations
@@ -217,6 +297,12 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | GET | `/api/search/reindex/status` | Check reindex status |
 | GET | `/api/search/stats` | Get index statistics |
 
+### Sync Operations (Job Runner - port 3001)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/sync/status` | Check sync status and configuration |
+
 ### Notes
 
 - File keys are base64url encoded in API requests
@@ -227,23 +313,33 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 
 ```
 S3 Storage
-├── folder/
-│   ├── file.txt
-│   ├── file.md
-│   └── metadata.json
+├── transcripts/
+│   ├── timestamp_v1.json  (sync manifest)
+│   └── folder/
+│       ├── file.txt
+│       ├── file.md
+│       └── metadata.json
 │
-└──→ Reindex Process
-    ├── List all S3 objects
-    ├── Filter .txt/.md files
-    ├── Group by folder
-    ├── Fetch metadata.json per folder
-    ├── Fetch file content
-    └── Insert to SQLite
+├──→ Full Reindex (on demand)
+│   ├── List all S3 objects
+│   ├── Filter .txt/.md files
+│   ├── Group by folder
+│   ├── Fetch metadata.json per folder
+│   ├── Fetch file content
+│   ├── Clear and rebuild database
+│   └── Set sync timestamp from manifest
+│
+└──→ Incremental Sync (periodic)
+    ├── Fetch timestamp_v1.json
+    ├── Compare with stored timestamp
+    ├── Reindex only updated prefixes
+    └── Update stored timestamp
         │
         └──→ Database
             ├── documents (main table)
             ├── documents_fts (search index)
-            └── schema_version
+            ├── schema_version
+            └── sync_status
 
 API Queries
 └──→ FTS5 search with highlighted results
