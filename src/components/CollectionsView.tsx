@@ -26,7 +26,6 @@ export interface CollectionDocument {
   name: string;
   title: string | null;
   creationDate: number | null;
-  creationDateISO: string | null;
   size: number;
 }
 
@@ -396,29 +395,29 @@ export function CollectionsView({
                 </tr>
               </thead>
               <tbody>
-                {documents.map((document) => (
+                {documents.map((doc) => (
                   <tr
-                    key={document.key}
+                    key={doc.key}
                     className="border-t hover:bg-muted/30 cursor-pointer"
-                    onClick={() => onPreview(document.key)}
+                    onClick={() => onPreview(doc.key)}
                   >
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 shrink-0" />
                         <span className="break-all font-medium">
-                          {document.name}
+                          {doc.name}
                         </span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
-                          ({formatBytes(document.size)})
+                          ({formatBytes(doc.size)})
                         </span>
                       </div>
                     </td>
                     <td className="p-3">
-                      {document.creationDate ? (
+                      {doc.creationDate ? (
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-sm">{getRelativeTime(document.creationDate)}</span>
+                          <span className="text-sm">{getRelativeTime(doc.creationDate)}</span>
                           <span className="text-xs text-muted-foreground hidden sm:block">
-                            {formatDate(document.creationDate)}
+                            {formatDate(doc.creationDate)}
                           </span>
                         </div>
                       ) : (
@@ -433,7 +432,7 @@ export function CollectionsView({
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() => onPreview(document.key)}
+                        onClick={() => onPreview(doc.key)}
                         title="Preview"
                       >
                         <Eye className="size-4" />
@@ -442,7 +441,7 @@ export function CollectionsView({
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() => onDownload(document.key)}
+                        onClick={() => onDownload(doc.key)}
                         title="Download"
                       >
                         <Download className="size-4" />

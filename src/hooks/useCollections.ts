@@ -34,7 +34,6 @@ export interface CollectionDocument {
   name: string;
   title: string | null;
   creationDate: number | null;
-  creationDateISO: string | null;
   size: number;
 }
 
