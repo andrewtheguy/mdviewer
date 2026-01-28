@@ -70,6 +70,17 @@ const SCHEMA_VERSION_TABLE = `
   );
 `;
 
+// Sync status table - tracks incremental sync state
+// last_source_timestamp: Max chapter_updated_date in seconds (for sync logic)
+// last_synced_at: Date.now() in milliseconds (for debugging)
+const SYNC_STATUS_TABLE = `
+  CREATE TABLE IF NOT EXISTS sync_status (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_source_timestamp INTEGER,
+    last_synced_at INTEGER
+  );
+`;
+
 // Shared trigger definitions to keep FTS in sync with main table
 const TRIGGER_DEFINITIONS = `
   CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
@@ -196,6 +207,9 @@ registerExitHandlers();
 function initializeSchema(database: Database.Database): void {
   // Create schema_version table first (preserved across reindexes)
   database.exec(SCHEMA_VERSION_TABLE);
+
+  // Create sync_status table (preserved across restarts, cleared on full reindex)
+  database.exec(SYNC_STATUS_TABLE);
 
   // Create tables, triggers, and indexes (preserves data across restarts)
   database.exec(SCHEMA_DDL);
@@ -390,12 +404,12 @@ export function addDocuments(docs: S3FileDocument[]): void {
 }
 
 // Clear all documents (private - used by runReindex)
-// Does NOT drop schema_version table
+// Does NOT drop schema_version table, but DOES drop sync_status table
 function clearDocuments(): void {
   const database = getDatabase();
 
-  // Drop triggers, FTS table, and documents table to avoid firing the delete
-  // trigger for each row (much faster for large datasets), then recreate.
+  // Drop triggers, FTS table, documents table, and sync_status to avoid firing
+  // the delete trigger for each row (much faster for large datasets), then recreate.
   // Wrapped in a transaction to ensure atomicity.
   const rebuildSchema = database.transaction(() => {
     database.exec(`
@@ -404,8 +418,10 @@ function clearDocuments(): void {
       DROP TRIGGER IF EXISTS documents_au;
       DROP TABLE IF EXISTS documents_fts;
       DROP TABLE IF EXISTS documents;
+      DROP TABLE IF EXISTS sync_status;
     `);
     database.exec(SCHEMA_DDL);
+    database.exec(SYNC_STATUS_TABLE);
   });
 
   rebuildSchema();
@@ -863,6 +879,30 @@ export function setSchemaVersion(version: number): void {
   `).run(version);
 }
 
+// Sync timestamp functions (using sync_status table)
+export function getLastSourceTimestamp(): number | null {
+  const database = getDatabase();
+  const stmt = database.prepare("SELECT last_source_timestamp FROM sync_status WHERE id = 1");
+  const result = stmt.get() as { last_source_timestamp: number | null } | undefined;
+  return result?.last_source_timestamp ?? null;
+}
+
+export function setLastSourceTimestamp(timestamp: number): void {
+  const database = getDatabase();
+  database.prepare(`
+    INSERT INTO sync_status (id, last_source_timestamp, last_synced_at)
+    VALUES (1, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET last_source_timestamp = excluded.last_source_timestamp, last_synced_at = excluded.last_synced_at
+  `).run(timestamp, Date.now());
+}
+
+export function getLastSyncedAt(): number | null {
+  const database = getDatabase();
+  const stmt = database.prepare("SELECT last_synced_at FROM sync_status WHERE id = 1");
+  const result = stmt.get() as { last_synced_at: number | null } | undefined;
+  return result?.last_synced_at ?? null;
+}
+
 // Reindex status tracking
 export interface ReindexStatus {
   running: boolean;
@@ -890,6 +930,26 @@ export function getReindexStatus(): ReindexStatus {
   return structuredClone(reindexStatus);
 }
 
+// Sync operation state
+let syncOperationRunning = false;
+let syncNeedsFullReindex = false;
+
+export function isSyncOperationRunning(): boolean {
+  return syncOperationRunning || reindexStatus.running;
+}
+
+export function setSyncOperationRunning(value: boolean): void {
+  syncOperationRunning = value;
+}
+
+export function getSyncNeedsFullReindex(): boolean {
+  return syncNeedsFullReindex;
+}
+
+export function setSyncNeedsFullReindex(value: boolean): void {
+  syncNeedsFullReindex = value;
+}
+
 // Metadata interface for folder metadata.json files
 interface FolderMetadata {
   creation_date: string;  // ISO 8601
@@ -897,6 +957,12 @@ interface FolderMetadata {
   type: string;           // "transcribefoldermetadata"
   collection: string;
   title: string;
+}
+
+// Timestamp manifest entry interface
+export interface TimestampEntry {
+  storage_prefix: string;
+  chapter_updated_date: string;  // ISO 8601
 }
 
 const INDEXABLE_EXTENSIONS = ["txt", "md"];
@@ -983,6 +1049,47 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
   }
 }
 
+// Validate that a value is a valid TimestampEntry
+function isValidTimestampEntry(value: unknown): value is TimestampEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  if (typeof obj.storage_prefix !== "string" || typeof obj.chapter_updated_date !== "string") {
+    return false;
+  }
+  // Ensure chapter_updated_date is a parseable date
+  const timestamp = Date.parse(obj.chapter_updated_date);
+  return !isNaN(timestamp);
+}
+
+// Fetch and parse timestamp manifest from S3
+export async function fetchTimestampManifest(): Promise<TimestampEntry[] | null> {
+  try {
+    const content = await withTimeout(
+      s3.file("transcripts/timestamp_v1.json").text(),
+      S3_FETCH_TIMEOUT_MS,
+      "fetch timestamp manifest"
+    );
+    const parsed: unknown = JSON.parse(content);
+
+    // Validate array
+    if (!Array.isArray(parsed)) {
+      throw new Error("Timestamp manifest is not an array");
+    }
+
+    // Validate each entry
+    for (let i = 0; i < parsed.length; i++) {
+      if (!isValidTimestampEntry(parsed[i])) {
+        throw new Error(`Invalid timestamp entry at index ${i}: missing/invalid storage_prefix or unparseable chapter_updated_date`);
+      }
+    }
+
+    return parsed as TimestampEntry[];
+  } catch (error) {
+    if (isS3NotFoundError(error)) return null;
+    throw error;
+  }
+}
+
 // Generate short checksum suffix from key (first 8 chars of md5)
 function keyChecksum(key: string): string {
   return crypto.createHash("md5").update(key).digest("hex").slice(0, 8);
@@ -1052,6 +1159,149 @@ function deduplicateNames(): number {
   console.log(`[Reindex] Renamed ${renamed} documents to resolve duplicates`);
 
   return renamed;
+}
+
+// Partial reindex for specific storage prefixes (used by sync)
+// Does NOT delete existing docs - uses INSERT OR REPLACE
+export async function reindexPaths(storagePrefixes: string[]): Promise<{ indexed: number; errors: number }> {
+  const result = { indexed: 0, errors: 0 };
+
+  if (storagePrefixes.length === 0) {
+    return result;
+  }
+
+  console.log(`[Sync] Reindexing ${storagePrefixes.length} paths...`);
+
+  for (const prefix of storagePrefixes) {
+    console.log(`[Sync] Processing path: ${prefix}`);
+
+    try {
+      // List objects under this prefix
+      const listResult = await s3.list({ prefix });
+      const objects = listResult.contents || [];
+
+      // Filter by extension
+      const indexableObjects = objects.filter((obj) => obj.key && isIndexable(obj.key));
+
+      if (indexableObjects.length === 0) {
+        console.log(`[Sync] No indexable files found under ${prefix}`);
+        continue;
+      }
+
+      // Group files by folder for metadata fetching
+      const filesByFolder = new Map<string, typeof indexableObjects>();
+      for (const obj of indexableObjects) {
+        const folderPath = getPath(obj.key!);
+        if (!filesByFolder.has(folderPath)) {
+          filesByFolder.set(folderPath, []);
+        }
+        filesByFolder.get(folderPath)!.push(obj);
+      }
+
+      // Fetch metadata for all folders
+      const folderMetadataCache = new Map<string, FolderMetadata | null>();
+      const folderPaths = Array.from(filesByFolder.keys());
+      const METADATA_FETCH_CONCURRENCY = 10;
+
+      for (let i = 0; i < folderPaths.length; i += METADATA_FETCH_CONCURRENCY) {
+        const batch = folderPaths.slice(i, i + METADATA_FETCH_CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (folderPath) => {
+            const metadata = await fetchFolderMetadata(folderPath);
+            return { folderPath, metadata };
+          })
+        );
+        for (const { folderPath, metadata } of results) {
+          folderMetadataCache.set(folderPath, metadata);
+        }
+      }
+
+      // Filter to only files with valid metadata
+      const validObjects = indexableObjects.filter((obj) => {
+        const folderPath = getPath(obj.key!);
+        return folderMetadataCache.get(folderPath) !== null;
+      });
+
+      // Index each file
+      const pendingDocuments: S3FileDocument[] = [];
+
+      for (const obj of validObjects) {
+        const key = obj.key!;
+        const folderPath = getPath(key);
+        const metadata = folderMetadataCache.get(folderPath)!;
+
+        try {
+          const content = await withTimeout(
+            s3.file(key).text(),
+            S3_FETCH_TIMEOUT_MS,
+            `fetch ${key}`
+          );
+          const contentPreview = content.slice(0, CONTENT_PREVIEW_LENGTH);
+          const lastModified = obj.lastModified ? new Date(obj.lastModified) : new Date();
+
+          // Determine creation date
+          let creationDate: Date;
+          let creationDateISO: string;
+          if (metadata.creation_date) {
+            const parsed = new Date(metadata.creation_date);
+            if (!isNaN(parsed.getTime())) {
+              creationDate = parsed;
+              creationDateISO = metadata.creation_date;
+            } else {
+              creationDate = lastModified;
+              creationDateISO = lastModified.toISOString();
+            }
+          } else {
+            creationDate = lastModified;
+            creationDateISO = lastModified.toISOString();
+          }
+
+          pendingDocuments.push({
+            id: keyToId(key),
+            key,
+            name: getBasename(key),
+            extension: getExtension(key),
+            size: obj.size ?? 0,
+            lastModified: lastModified.getTime(),
+            lastModifiedISO: lastModified.toISOString(),
+            content,
+            contentPreview,
+            collection: metadata.collection,
+            title: metadata.title,
+            creationDate: creationDate.getTime(),
+            creationDateISO,
+          });
+
+          // Batch insert
+          if (pendingDocuments.length >= INDEX_BATCH_SIZE) {
+            addDocuments(pendingDocuments);
+            result.indexed += pendingDocuments.length;
+            pendingDocuments.length = 0;
+          }
+        } catch (err) {
+          console.error(`[Sync] Failed to fetch "${key}":`, err);
+          result.errors++;
+        }
+      }
+
+      // Insert remaining documents
+      if (pendingDocuments.length > 0) {
+        addDocuments(pendingDocuments);
+        result.indexed += pendingDocuments.length;
+      }
+
+      console.log(`[Sync] Indexed ${validObjects.length} files from ${prefix}`);
+    } catch (err) {
+      console.error(`[Sync] Failed to process path "${prefix}":`, err);
+      result.errors++;
+    }
+  }
+
+  // Deduplicate names after all paths processed
+  deduplicateNames();
+
+  console.log(`[Sync] Partial reindex complete: indexed=${result.indexed}, errors=${result.errors}`);
+  return result;
 }
 
 export async function runReindex(): Promise<void> {
@@ -1226,6 +1476,23 @@ export async function runReindex(): Promise<void> {
     // Update schema version on successful reindex
     setSchemaVersion(SCHEMA_VERSION);
 
+    // Clear sync flag and set timestamp from manifest
+    setSyncNeedsFullReindex(false);
+    try {
+      const manifest = await fetchTimestampManifest();
+      if (manifest && manifest.length > 0) {
+        const maxTimestampSeconds = Math.max(
+          ...manifest.map(e => Math.floor(new Date(e.chapter_updated_date).getTime() / 1000))
+        );
+        if (!isNaN(maxTimestampSeconds) && isFinite(maxTimestampSeconds)) {
+          setLastSourceTimestamp(maxTimestampSeconds);
+          console.log(`[Reindex] Set last_source_timestamp to ${maxTimestampSeconds}`);
+        }
+      }
+    } catch (err) {
+      console.warn("[Reindex] Failed to set sync timestamp from manifest:", err);
+    }
+
     console.log("[Reindex] Reindex completed successfully!", result);
     reindexStatus.lastResult = {
       success: true,
@@ -1244,8 +1511,8 @@ export async function runReindex(): Promise<void> {
 
 // Start a reindex job (returns immediately, runs in background)
 export function startReindex(): { success: boolean; message: string } {
-  if (reindexStatus.running) {
-    return { success: false, message: "Reindex already in progress" };
+  if (reindexStatus.running || syncOperationRunning) {
+    return { success: false, message: "Reindex or sync already in progress" };
   }
 
   reindexStatus.running = true;
