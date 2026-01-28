@@ -1063,9 +1063,12 @@ function isValidTimestampEntry(value: unknown): value is TimestampEntry {
 
 // Fetch and parse timestamp manifest from S3
 export async function fetchTimestampManifest(): Promise<TimestampEntry[] | null> {
+  // Build manifest path using S3_INDEX_PREFIX
+  const prefix = S3_INDEX_PREFIX && !S3_INDEX_PREFIX.endsWith("/") ? S3_INDEX_PREFIX + "/" : S3_INDEX_PREFIX;
+  const manifestPath = `${prefix}manifest/timestamp_v1.json`;
   try {
     const content = await withTimeout(
-      s3.file("manifest/timestamp_v1.json").text(),
+      s3.file(manifestPath).text(),
       S3_FETCH_TIMEOUT_MS,
       "fetch timestamp manifest"
     );
