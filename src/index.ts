@@ -238,8 +238,7 @@ app.get("/api/documents/recent", (req, res) => {
 // Search API Routes
 app.get("/api/search", (req, res) => {
   const query = (req.query.q as string) || "";
-  const limit = parseInt((req.query.limit as string) || "20", 10);
-  const offset = parseInt((req.query.offset as string) || "0", 10);
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 20 });
 
   if (!query.trim()) {
     res.json({ hits: [], query: "", totalHits: 0 });
