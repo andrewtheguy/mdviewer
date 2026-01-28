@@ -9,7 +9,7 @@ import {
   reindexPaths,
   isSyncOperationRunning,
   setSyncOperationRunning,
-  getSyncNeedsFullReindex,
+  checkNeedsFullReindex,
   setSyncNeedsFullReindex,
 } from "./lib/search-db";
 
@@ -39,6 +39,12 @@ const app = express();
 
 // Check for updated entries and sync incrementally
 async function checkAndSync(): Promise<void> {
+  // Skip if full reindex is required (checks both schema version and sync flag)
+  if (checkNeedsFullReindex()) {
+    console.log("[Sync] Skipping: full reindex required");
+    return;
+  }
+
   // Check mutual exclusion
   if (isSyncOperationRunning()) {
     console.log("[Sync] Skipping: reindex or sync already running");
@@ -147,7 +153,7 @@ app.get("/sync/status", (_req, res) => {
       intervalS: SYNC_CHECK_INTERVAL_S,
       lastSourceTimestamp: getLastSourceTimestamp(),
       lastSyncedAt: getLastSyncedAt(),
-      needsFullReindex: getSyncNeedsFullReindex(),
+      needsFullReindex: checkNeedsFullReindex(),
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
