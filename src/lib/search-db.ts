@@ -1020,21 +1020,17 @@ function getPath(key: string): string {
 
 // Timeout wrapper for async operations
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Timeout after ${ms}ms: ${label}`));
+    }, ms);
+  });
 
   try {
-    const result = await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        controller.signal.addEventListener("abort", () => {
-          reject(new Error(`Timeout after ${ms}ms: ${label}`));
-        });
-      }),
-    ]);
-    return result;
+    return await Promise.race([promise, timeoutPromise]);
   } finally {
-    clearTimeout(timer);
+    clearTimeout(timer!);
   }
 }
 
