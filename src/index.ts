@@ -74,7 +74,12 @@ async function fetchOrThrow<T = unknown>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
+      let text = "";
+      try {
+        text = await response.text();
+      } catch {
+        // Ignore parse errors, use empty string
+      }
       throw new HttpError(response.status, text || response.statusText);
     }
 

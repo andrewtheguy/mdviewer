@@ -1019,14 +1019,23 @@ function getPath(key: string): string {
 }
 
 // Timeout wrapper for async operations
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise<T>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms);
-    }),
-  ]);
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+
+  try {
+    const result = await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        controller.signal.addEventListener("abort", () => {
+          reject(new Error(`Timeout after ${ms}ms: ${label}`));
+        });
+      }),
+    ]);
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Check if an error indicates S3 "not found" (NoSuchKey)

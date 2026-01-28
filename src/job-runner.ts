@@ -174,9 +174,21 @@ app.listen(PORT, () => {
   // Start periodic sync check
   if (SYNC_ENABLED) {
     console.log(`[Sync] Periodic check every ${SYNC_CHECK_INTERVAL_S}s`);
-    setInterval(() => checkAndSync().catch(console.error), SYNC_CHECK_INTERVAL_S * 1000);
+    setInterval(async () => {
+      try {
+        await checkAndSync();
+      } catch (error) {
+        console.error(error);
+      }
+    }, SYNC_CHECK_INTERVAL_S * 1000);
     // Initial check after 5s startup delay
-    setTimeout(() => checkAndSync().catch(console.error), 5000);
+    setTimeout(async () => {
+      try {
+        await checkAndSync();
+      } catch (error) {
+        console.error(error);
+      }
+    }, 5000);
   } else {
     console.log("[Sync] Disabled via SYNC_ENABLED=false");
   }
