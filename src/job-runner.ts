@@ -137,13 +137,19 @@ app.get("/status", (_req, res) => {
 });
 
 app.get("/sync/status", (_req, res) => {
-  res.json({
-    enabled: SYNC_ENABLED,
-    intervalS: SYNC_CHECK_INTERVAL_S,
-    lastSourceTimestamp: getLastSourceTimestamp(),
-    lastSyncedAt: getLastSyncedAt(),
-    needsFullReindex: getSyncNeedsFullReindex(),
-  });
+  try {
+    res.json({
+      enabled: SYNC_ENABLED,
+      intervalS: SYNC_CHECK_INTERVAL_S,
+      lastSourceTimestamp: getLastSourceTimestamp(),
+      lastSyncedAt: getLastSyncedAt(),
+      needsFullReindex: getSyncNeedsFullReindex(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[JobRunner] Failed to get sync status:", err);
+    res.status(500).json({ error: "Failed to get sync status", details: message });
+  }
 });
 
 app.listen(PORT, () => {
