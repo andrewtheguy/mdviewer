@@ -947,7 +947,6 @@ export function setSyncOperationRunning(value: boolean): void {
 let schemaVersionMismatchLogged = false;
 
 // Check if full reindex is needed (schema mismatch or sync flag set)
-// Also sets the flag if schema version mismatches
 export function checkNeedsFullReindex(): boolean {
   const dbVersion = getSchemaVersion();
   if (dbVersion !== SCHEMA_VERSION) {
@@ -955,10 +954,10 @@ export function checkNeedsFullReindex(): boolean {
       console.log(`[DB] Schema version mismatch: DB=${dbVersion}, expected=${SCHEMA_VERSION}. Full reindex required.`);
       schemaVersionMismatchLogged = true;
     }
-    setSyncNeedsFullReindex(true);
-  } else {
-    schemaVersionMismatchLogged = false;
+    // Return true directly - don't try to write to DB since schema is outdated
+    return true;
   }
+  schemaVersionMismatchLogged = false;
   return getSyncNeedsFullReindex();
 }
 
