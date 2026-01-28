@@ -13,6 +13,13 @@ import {
   setSyncNeedsFullReindex,
 } from "./lib/search-db";
 
+class HttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 // Global error handlers to prevent silent crashes
 process.on("uncaughtException", (error) => {
   console.error("[JobRunner] Uncaught exception:", error);
@@ -123,43 +130,42 @@ async function checkAndSync(): Promise<void> {
 }
 
 app.post("/reindex", (_req, res) => {
-  try {
-    const result = startReindex();
-    if (result.success) {
-      res.json(result);
-    } else {
-      res.status(409).json({ error: result.message });
-    }
-  } catch (err) {
-    console.error("[JobRunner] Failed to start reindex:", err);
-    res.status(500).json({ error: "Failed to start reindex" });
+  const result = startReindex();
+  if (result.success) {
+    res.json(result);
+  } else {
+    throw new HttpError(409, result.message);
   }
 });
 
 app.get("/status", (_req, res) => {
-  try {
-    res.json(getReindexStatus());
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[JobRunner] Failed to get reindex status:", err);
-    res.status(500).json({ error: "Failed to get reindex status", details: message });
-  }
+  res.json(getReindexStatus());
 });
 
 app.get("/sync/status", (_req, res) => {
-  try {
-    res.json({
-      enabled: SYNC_ENABLED,
-      intervalS: SYNC_CHECK_INTERVAL_S,
-      lastSourceTimestamp: getLastSourceTimestamp(),
-      lastSyncedAt: getLastSyncedAt(),
-      needsFullReindex: checkNeedsFullReindex(),
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[JobRunner] Failed to get sync status:", err);
-    res.status(500).json({ error: "Failed to get sync status", details: message });
+  res.json({
+    enabled: SYNC_ENABLED,
+    intervalS: SYNC_CHECK_INTERVAL_S,
+    lastSourceTimestamp: getLastSourceTimestamp(),
+    lastSyncedAt: getLastSyncedAt(),
+    needsFullReindex: checkNeedsFullReindex(),
+  });
+});
+
+// Global error handler middleware (4 params required for Express to recognize as error handler)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ error: err.message });
+    return;
   }
+  if (err instanceof Error) {
+    console.error("[JobRunner] Unhandled error:", err);
+    res.status(500).json({ error: err.message });
+    return;
+  }
+  console.error("[JobRunner] Unknown error:", err);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 app.listen(PORT, () => {
@@ -168,9 +174,21 @@ app.listen(PORT, () => {
   // Start periodic sync check
   if (SYNC_ENABLED) {
     console.log(`[Sync] Periodic check every ${SYNC_CHECK_INTERVAL_S}s`);
-    setInterval(() => checkAndSync().catch(console.error), SYNC_CHECK_INTERVAL_S * 1000);
+    setInterval(async () => {
+      try {
+        await checkAndSync();
+      } catch (error) {
+        console.error(error);
+      }
+    }, SYNC_CHECK_INTERVAL_S * 1000);
     // Initial check after 5s startup delay
-    setTimeout(() => checkAndSync().catch(console.error), 5000);
+    setTimeout(async () => {
+      try {
+        await checkAndSync();
+      } catch (error) {
+        console.error(error);
+      }
+    }, 5000);
   } else {
     console.log("[Sync] Disabled via SYNC_ENABLED=false");
   }

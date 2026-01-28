@@ -2,6 +2,13 @@ import express from "express";
 import path from "path";
 import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionDocuments, getStats, checkNeedsFullReindex, type SortField, type SortOrder } from "./lib/search-db";
 
+class HttpError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "HttpError";
+  }
+}
+
 // Validate and decode base64 URL-safe encoded key
 // Throws Error if input contains invalid base64url characters
 function decodeKey(encoded: string): string {
@@ -46,18 +53,14 @@ function parseSortParams(query: { sortBy?: string; sortOrder?: string }): { sort
   return { sortBy, sortOrder };
 }
 
-interface FetchWithTimeoutOptions extends RequestInit {
+interface FetchOrThrowOptions extends RequestInit {
   timeoutMs?: number;
 }
 
-type FetchResult<T> =
-  | { ok: true; data: T; status: number }
-  | { ok: false; error: string; status: number };
-
-async function fetchWithTimeout<T = unknown>(
+async function fetchOrThrow<T = unknown>(
   url: string,
-  options: FetchWithTimeoutOptions = {}
-): Promise<FetchResult<T>> {
+  options: FetchOrThrowOptions = {}
+): Promise<T> {
   const { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS, ...fetchOptions } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -71,32 +74,35 @@ async function fetchWithTimeout<T = unknown>(
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      return {
-        ok: false,
-        error: text || response.statusText,
-        status: response.status,
-      };
+      let text = "";
+      try {
+        text = await response.text();
+      } catch {
+        // Ignore parse errors, use empty string
+      }
+      throw new HttpError(response.status, text || response.statusText);
     }
 
     try {
-      const data = await response.json() as T;
-      return { ok: true, data, status: response.status };
+      return await response.json() as T;
     } catch (parseError) {
-      return {
-        ok: false,
-        error: parseError instanceof SyntaxError ? "Invalid JSON response" : "Failed to parse response",
-        status: response.status,
-      };
+      throw new HttpError(
+        500,
+        parseError instanceof SyntaxError ? "Invalid JSON response" : "Failed to parse response"
+      );
     }
   } catch (error) {
     clearTimeout(timeoutId);
 
-    if (error instanceof Error && error.name === "AbortError") {
-      return { ok: false, error: "Request timed out", status: 504 };
+    if (error instanceof HttpError) {
+      throw error;
     }
 
-    return { ok: false, error: "Service unavailable", status: 502 };
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new HttpError(504, "Request timed out");
+    }
+
+    throw new HttpError(502, "Service unavailable");
   }
 }
 
@@ -121,252 +127,177 @@ app.use("/api", (req, res, next) => {
 
 // Document API Routes (served from database)
 app.get("/api/documents/list", (req, res) => {
-  try {
-    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 100 });
-    const result = listDocuments({ limit, offset });
-    res.json({ objects: result.objects, total: result.total });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to list objects",
-    });
-  }
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 100 });
+  const result = listDocuments({ limit, offset });
+  res.json({ objects: result.objects, total: result.total });
 });
 
 // Browse folder endpoint - returns folders and paginated files at a path
 app.get("/api/documents/browse", (req, res) => {
-  try {
-    const requestPath = (req.query.path as string) || "";
-    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
-    const result = browseFolder({ path: requestPath, limit, offset });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to browse folder",
-    });
-  }
+  const requestPath = (req.query.path as string) || "";
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+  const result = browseFolder({ path: requestPath, limit, offset });
+  res.json(result);
 });
 
 app.get("/api/documents/download", (req, res) => {
-  try {
-    const encodedKey = req.query.key as string | undefined;
-    if (!encodedKey) {
-      res.status(400).json({ error: "Missing key parameter" });
-      return;
-    }
-
-    let key: string;
-    try {
-      key = decodeKey(encodedKey);
-    } catch {
-      res.status(400).json({ error: "Invalid key parameter" });
-      return;
-    }
-
-    const doc = getDocument(key);
-
-    if (!doc) {
-      res.status(404).json({ error: "File not found" });
-      return;
-    }
-
-    // Determine content type based on extension
-    const contentType = doc.extension === "md" ? "text/markdown" : "text/plain";
-
-    // Extract basename and encode for Content-Disposition header (RFC 5987)
-    const basename = key.split("/").pop() || key;
-    const encodedFilename = encodeURIComponent(basename).replace(/'/g, "%27");
-
-    res.setHeader("Content-Type", `${contentType}; charset=utf-8`);
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename*=UTF-8''${encodedFilename}`
-    );
-    res.send(doc.content);
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to download file",
-    });
+  const encodedKey = req.query.key as string | undefined;
+  if (!encodedKey) {
+    throw new HttpError(400, "Missing key parameter");
   }
+
+  let key: string;
+  try {
+    key = decodeKey(encodedKey);
+  } catch {
+    throw new HttpError(400, "Invalid key parameter");
+  }
+
+  const doc = getDocument(key);
+
+  if (!doc) {
+    throw new HttpError(404, "File not found");
+  }
+
+  // Determine content type based on extension
+  const contentType = doc.extension === "md" ? "text/markdown" : "text/plain";
+
+  // Extract basename and encode for Content-Disposition header (RFC 5987)
+  const basename = key.split("/").pop() || key;
+  const encodedFilename = encodeURIComponent(basename).replace(/'/g, "%27");
+
+  res.setHeader("Content-Type", `${contentType}; charset=utf-8`);
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename*=UTF-8''${encodedFilename}`
+  );
+  res.send(doc.content);
 });
 
 app.get("/api/documents/preview", (req, res) => {
-  try {
-    const encodedKey = req.query.key as string | undefined;
-    if (!encodedKey) {
-      res.status(400).json({ error: "Missing key parameter" });
-      return;
-    }
-    const key = decodeKey(encodedKey);
-    const ext = key.toLowerCase().split(".").pop();
-
-    // Only allow preview for .txt and .md files
-    if (ext !== "txt" && ext !== "md") {
-      res.status(400).json({
-        error: "Preview is only supported for .txt and .md files",
-      });
-      return;
-    }
-
-    const doc = getDocument(key);
-
-    if (!doc) {
-      res.status(404).json({ error: "File not found" });
-      return;
-    }
-
-    // Get metadata for the document
-    const metadata = getDocumentMetadata(key);
-
-    res.json({
-      content: doc.content,
-      collection: metadata?.collection ?? null,
-      title: metadata?.title ?? null,
-      creationDate: metadata?.creationDate ?? null,
-      creationDateISO: metadata?.creationDateISO ?? null,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to preview file",
-    });
+  const encodedKey = req.query.key as string | undefined;
+  if (!encodedKey) {
+    throw new HttpError(400, "Missing key parameter");
   }
+
+  let key: string;
+  try {
+    key = decodeKey(encodedKey);
+  } catch {
+    throw new HttpError(400, "Invalid key parameter");
+  }
+
+  const ext = key.toLowerCase().split(".").pop();
+
+  // Only allow preview for .txt and .md files
+  if (ext !== "txt" && ext !== "md") {
+    throw new HttpError(400, "Preview is only supported for .txt and .md files");
+  }
+
+  const doc = getDocument(key);
+
+  if (!doc) {
+    throw new HttpError(404, "File not found");
+  }
+
+  // Get metadata for the document
+  const metadata = getDocumentMetadata(key);
+
+  res.json({
+    content: doc.content,
+    collection: metadata?.collection ?? null,
+    title: metadata?.title ?? null,
+    creationDate: metadata?.creationDate ?? null,
+    creationDateISO: metadata?.creationDateISO ?? null,
+  });
 });
 
 // Recent files endpoint - returns recently updated .txt and .md files from database
 app.get("/api/documents/recent", (req, res) => {
-  try {
-    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
 
-    // Validate typeFilter against allowed values
-    const allowedTypes = ["all", "txt", "md"] as const;
-    const rawType = (req.query.type as string) || "all";
-    const typeFilter: "all" | "txt" | "md" = allowedTypes.includes(rawType as typeof allowedTypes[number])
-      ? (rawType as "all" | "txt" | "md")
-      : "all";
+  // Validate typeFilter against allowed values
+  const allowedTypes = ["all", "txt", "md"] as const;
+  const rawType = (req.query.type as string) || "all";
+  const typeFilter: "all" | "txt" | "md" = allowedTypes.includes(rawType as typeof allowedTypes[number])
+    ? (rawType as "all" | "txt" | "md")
+    : "all";
 
-    const result = getRecentDocuments({
-      limit,
-      offset,
-      type: typeFilter,
-    });
+  const result = getRecentDocuments({
+    limit,
+    offset,
+    type: typeFilter,
+  });
 
-    res.json({
-      files: result.files,
-      totalFiles: result.totalFiles,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error:
-        error instanceof Error ? error.message : "Failed to get recent files",
-    });
-  }
+  res.json({
+    files: result.files,
+    totalFiles: result.totalFiles,
+  });
 });
 
 // Search API Routes
 app.get("/api/search", (req, res) => {
-  try {
-    const query = (req.query.q as string) || "";
-    const limit = parseInt((req.query.limit as string) || "20", 10);
-    const offset = parseInt((req.query.offset as string) || "0", 10);
+  const query = (req.query.q as string) || "";
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 20 });
 
-    if (!query.trim()) {
-      res.json({ hits: [], query: "", totalHits: 0 });
-      return;
-    }
-
-    const results = search(query, { limit, offset });
-
-    res.json({
-      hits: results.hits,
-      query: results.query,
-      totalHits: results.totalHits,
-      processingTimeMs: results.processingTimeMs,
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Search failed",
-    });
+  if (!query.trim()) {
+    res.json({ hits: [], query: "", totalHits: 0 });
+    return;
   }
+
+  const results = search(query, { limit, offset });
+
+  res.json({
+    hits: results.hits,
+    query: results.query,
+    totalHits: results.totalHits,
+    processingTimeMs: results.processingTimeMs,
+  });
 });
 
 app.post("/api/search/reindex", async (_req, res) => {
-  const result = await fetchWithTimeout(`${JOB_RUNNER_URL}/reindex`, {
+  const data = await fetchOrThrow(`${JOB_RUNNER_URL}/reindex`, {
     method: "POST",
   });
-
-  if (result.ok) {
-    res.json(result.data);
-  } else {
-    res.status(result.status).json({ error: result.error });
-  }
+  res.json(data);
 });
 
 app.get("/api/search/reindex/status", async (_req, res) => {
-  const result = await fetchWithTimeout<{ running: boolean }>(`${JOB_RUNNER_URL}/status`);
-
-  if (result.ok) {
-    res.json(result.data);
-  } else {
-    res.status(result.status).json({ running: false, error: result.error });
-  }
+  const data = await fetchOrThrow<{ running: boolean }>(`${JOB_RUNNER_URL}/status`);
+  res.json(data);
 });
 
 app.get("/api/search/stats", (_req, res) => {
-  try {
-    const stats = getStats();
-    res.json(stats);
-  } catch (error) {
-    console.error("Failed to get index stats:", error);
-    res.json({
-      numberOfDocuments: 0,
-      isIndexing: false,
-    });
-  }
+  const stats = getStats();
+  res.json(stats);
 });
 
 // Collections API Routes
 app.get("/api/collections", (req, res) => {
-  try {
-    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
-    const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
-    const result = getCollections({ limit, offset, sortBy, sortOrder });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to get collections",
-    });
-  }
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+  const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
+  const result = getCollections({ limit, offset, sortBy, sortOrder });
+  res.json(result);
 });
 
 app.get("/api/collections/:collection", (req, res) => {
-  try {
-    const { collection } = req.params;
-    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
-    const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
-    // Return grouped titles for this collection
-    const result = getCollectionTitles(collection, { limit, offset, sortBy, sortOrder });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to get collection titles",
-    });
-  }
+  const { collection } = req.params;
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+  const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
+  // Return grouped titles for this collection
+  const result = getCollectionTitles(collection, { limit, offset, sortBy, sortOrder });
+  res.json(result);
 });
 
 app.get("/api/collections/:collection/documents/:title", (req, res) => {
-  try {
-    const { collection, title: titleParam } = req.params;
-    // Translate placeholder to null for querying documents with NULL title
-    const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
-    const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
-    const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
-    // Return documents for this specific title within the collection
-    const result = getCollectionDocuments(collection, { limit, offset, title, sortBy, sortOrder });
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Failed to get collection documents",
-    });
-  }
+  const { collection, title: titleParam } = req.params;
+  // Translate placeholder to null for querying documents with NULL title
+  const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
+  const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
+  const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
+  // Return documents for this specific title within the collection
+  const result = getCollectionDocuments(collection, { limit, offset, title, sortBy, sortOrder });
+  res.json(result);
 });
 
 // Serve static files in production
@@ -383,6 +314,22 @@ if (isProduction) {
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
+
+// Global error handler middleware (4 params required for Express to recognize as error handler)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (err instanceof HttpError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  if (err instanceof Error) {
+    console.error("Unhandled error:", err);
+    res.status(500).json({ error: err.message });
+    return;
+  }
+  console.error("Unknown error:", err);
+  res.status(500).json({ error: "Internal server error" });
+});
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
