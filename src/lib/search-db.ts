@@ -948,9 +948,14 @@ export function setSyncOperationRunning(value: boolean): void {
 export function checkNeedsFullReindex(): boolean {
   const dbVersion = getSchemaVersion();
   if (dbVersion !== SCHEMA_VERSION) {
+    console.log(`[DB] Schema version mismatch: DB=${dbVersion}, expected=${SCHEMA_VERSION}`);
     setSyncNeedsFullReindex(true);
   }
-  return getSyncNeedsFullReindex();
+  const needsReindex = getSyncNeedsFullReindex();
+  if (needsReindex) {
+    console.log("[DB] Full reindex required");
+  }
+  return needsReindex;
 }
 
 export function getSyncNeedsFullReindex(): boolean {
