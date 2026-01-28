@@ -1053,7 +1053,12 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
 function isValidTimestampEntry(value: unknown): value is TimestampEntry {
   if (typeof value !== "object" || value === null) return false;
   const obj = value as Record<string, unknown>;
-  return typeof obj.storage_prefix === "string" && typeof obj.chapter_updated_date === "string";
+  if (typeof obj.storage_prefix !== "string" || typeof obj.chapter_updated_date !== "string") {
+    return false;
+  }
+  // Ensure chapter_updated_date is a parseable date
+  const timestamp = Date.parse(obj.chapter_updated_date);
+  return !isNaN(timestamp);
 }
 
 // Fetch and parse timestamp manifest from S3
@@ -1074,7 +1079,7 @@ export async function fetchTimestampManifest(): Promise<TimestampEntry[] | null>
     // Validate each entry
     for (let i = 0; i < parsed.length; i++) {
       if (!isValidTimestampEntry(parsed[i])) {
-        throw new Error(`Invalid timestamp entry at index ${i}: missing or invalid storage_prefix/chapter_updated_date`);
+        throw new Error(`Invalid timestamp entry at index ${i}: missing/invalid storage_prefix or unparseable chapter_updated_date`);
       }
     }
 
