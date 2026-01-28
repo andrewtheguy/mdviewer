@@ -23,7 +23,7 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 const PORT = process.env.JOB_RUNNER_PORT || 3001;
-const SYNC_CHECK_INTERVAL_MS = parseInt(process.env.SYNC_CHECK_INTERVAL_MS || "60000", 10);
+const SYNC_CHECK_INTERVAL_S = parseInt(process.env.SYNC_CHECK_INTERVAL_S || "900", 10); // Default 15 minutes
 const SYNC_ENABLED = process.env.SYNC_ENABLED !== "false";
 const S3_INDEX_PREFIX = process.env.S3_INDEX_PREFIX || "";
 
@@ -132,7 +132,7 @@ app.get("/status", (_req, res) => {
 app.get("/sync/status", (_req, res) => {
   res.json({
     enabled: SYNC_ENABLED,
-    intervalMs: SYNC_CHECK_INTERVAL_MS,
+    intervalS: SYNC_CHECK_INTERVAL_S,
     lastSourceTimestamp: getLastSourceTimestamp(),
     lastSyncedAt: getLastSyncedAt(),
     needsFullReindex: getSyncNeedsFullReindex(),
@@ -144,8 +144,8 @@ app.listen(PORT, () => {
 
   // Start periodic sync check
   if (SYNC_ENABLED) {
-    console.log(`[Sync] Periodic check every ${SYNC_CHECK_INTERVAL_MS}ms`);
-    setInterval(() => checkAndSync().catch(console.error), SYNC_CHECK_INTERVAL_MS);
+    console.log(`[Sync] Periodic check every ${SYNC_CHECK_INTERVAL_S}s`);
+    setInterval(() => checkAndSync().catch(console.error), SYNC_CHECK_INTERVAL_S * 1000);
     // Initial check after 5s startup delay
     setTimeout(() => checkAndSync().catch(console.error), 5000);
   } else {
