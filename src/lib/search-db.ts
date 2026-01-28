@@ -943,19 +943,23 @@ export function setSyncOperationRunning(value: boolean): void {
   syncOperationRunning = value;
 }
 
+// Track if we've already logged the schema mismatch (avoid repeated logs on each request)
+let schemaVersionMismatchLogged = false;
+
 // Check if full reindex is needed (schema mismatch or sync flag set)
 // Also sets the flag if schema version mismatches
 export function checkNeedsFullReindex(): boolean {
   const dbVersion = getSchemaVersion();
   if (dbVersion !== SCHEMA_VERSION) {
-    console.log(`[DB] Schema version mismatch: DB=${dbVersion}, expected=${SCHEMA_VERSION}`);
+    if (!schemaVersionMismatchLogged) {
+      console.log(`[DB] Schema version mismatch: DB=${dbVersion}, expected=${SCHEMA_VERSION}. Full reindex required.`);
+      schemaVersionMismatchLogged = true;
+    }
     setSyncNeedsFullReindex(true);
+  } else {
+    schemaVersionMismatchLogged = false;
   }
-  const needsReindex = getSyncNeedsFullReindex();
-  if (needsReindex) {
-    console.log("[DB] Full reindex required");
-  }
-  return needsReindex;
+  return getSyncNeedsFullReindex();
 }
 
 export function getSyncNeedsFullReindex(): boolean {
