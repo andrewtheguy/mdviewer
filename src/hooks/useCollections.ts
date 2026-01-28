@@ -29,12 +29,11 @@ export interface CollectionTitle {
   latestCreationDate: string | null;
 }
 
-export interface CollectionTranscript {
+export interface CollectionDocument {
   key: string;
   name: string;
   title: string | null;
   creationDate: number | null;
-  creationDateISO: string | null;
   size: number;
 }
 
@@ -50,18 +49,18 @@ export interface UseCollectionsReturn {
   totalCollectionTitles: number;
   titlesCurrentPage: number;
   selectedTitle: string | null;
-  // Transcripts (level 3)
-  collectionTranscripts: CollectionTranscript[];
-  collectionTotalTranscripts: number;
+  // Documents (level 3)
+  collectionDocuments: CollectionDocument[];
+  collectionTotalDocuments: number;
   collectionCurrentPage: number;
   // Sorting state
   collectionSort: SortState;
   titleSort: SortState;
-  transcriptSort: SortState;
+  documentSort: SortState;
   // Actions
   loadCollections: (page?: number) => Promise<void>;
   loadCollectionTitles: (collection: string, page?: number) => Promise<void>;
-  loadCollectionTranscripts: (collection: string, title: string, page?: number) => Promise<void>;
+  loadCollectionDocuments: (collection: string, title: string, page?: number) => Promise<void>;
   handleShowCollections: () => void;
   handleSelectCollection: (collection: string) => void;
   handleCollectionBack: () => void;
@@ -76,7 +75,7 @@ export interface UseCollectionsReturn {
   // Sorting actions
   setCollectionSort: (sort: SortState) => void;
   setTitleSort: (sort: SortState) => void;
-  setTranscriptSort: (sort: SortState) => void;
+  setDocumentSort: (sort: SortState) => void;
 }
 
 export function useCollections(onError: (error: string | null) => void): UseCollectionsReturn {
@@ -93,9 +92,9 @@ export function useCollections(onError: (error: string | null) => void): UseColl
   const [titlesCurrentPage, setTitlesCurrentPage] = useState(1);
   const [selectedTitle, setSelectedTitle] = useState<string | null>(getTitleFromURL);
 
-  // Transcripts state (level 3)
-  const [collectionTranscripts, setCollectionTranscripts] = useState<CollectionTranscript[]>([]);
-  const [collectionTotalTranscripts, setCollectionTotalTranscripts] = useState(0);
+  // Documents state (level 3)
+  const [collectionDocuments, setCollectionDocuments] = useState<CollectionDocument[]>([]);
+  const [collectionTotalDocuments, setCollectionTotalDocuments] = useState(0);
   const [collectionCurrentPage, setCollectionCurrentPage] = useState(1);
 
   // Sorting state - initialize from URL for the active view level
@@ -113,8 +112,8 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     }
     return DEFAULT_SORT;
   });
-  const [transcriptSort, setTranscriptSort] = useState<SortState>(() => {
-    // Only use URL sort if we're at transcripts level
+  const [documentSort, setDocumentSort] = useState<SortState>(() => {
+    // Only use URL sort if we're at documents level
     if (isCollectionsViewFromURL() && getCollectionFromURL() && getTitleFromURL()) {
       return getSortFromURL();
     }
@@ -124,7 +123,7 @@ export function useCollections(onError: (error: string | null) => void): UseColl
   // AbortController refs for request cancellation to prevent race conditions
   const collectionsAbortRef = useRef<AbortController | null>(null);
   const titlesAbortRef = useRef<AbortController | null>(null);
-  const transcriptsAbortRef = useRef<AbortController | null>(null);
+  const documentsAbortRef = useRef<AbortController | null>(null);
 
   const loadCollections = useCallback(async (page = 1, sort?: SortState) => {
     // Abort any in-flight request
@@ -220,35 +219,35 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     }
   }, [onError, titleSort]);
 
-  const loadCollectionTranscripts = useCallback(async (collection: string, title: string, page = 1, sort?: SortState) => {
+  const loadCollectionDocuments = useCallback(async (collection: string, title: string, page = 1, sort?: SortState) => {
     // Abort any in-flight request
-    transcriptsAbortRef.current?.abort();
+    documentsAbortRef.current?.abort();
     const abortController = new AbortController();
-    transcriptsAbortRef.current = abortController;
+    documentsAbortRef.current = abortController;
 
     setIsLoadingCollections(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
-      const currentSort = sort ?? transcriptSort;
+      const currentSort = sort ?? documentSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}/transcripts/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        `/api/collections/${encodeURIComponent(collection)}/documents/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
       if (!response.ok) {
         const errorBody = await response.text();
-        onError(`Failed to load collection transcripts: ${response.status} ${errorBody || response.statusText}`);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
+        onError(`Failed to load collection documents: ${response.status} ${errorBody || response.statusText}`);
+        setCollectionDocuments([]);
+        setCollectionTotalDocuments(0);
         return;
       }
       const data = await response.json();
       if (data.error) {
         onError(data.error);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
+        setCollectionDocuments([]);
+        setCollectionTotalDocuments(0);
       } else {
-        setCollectionTranscripts(data.transcripts || []);
-        setCollectionTotalTranscripts(data.total || 0);
+        setCollectionDocuments(data.documents || []);
+        setCollectionTotalDocuments(data.total || 0);
         setCollectionCurrentPage(page);
       }
     } catch (err) {
@@ -256,16 +255,16 @@ export function useCollections(onError: (error: string | null) => void): UseColl
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      onError(err instanceof Error ? err.message : "Failed to load collection transcripts");
-      setCollectionTranscripts([]);
-      setCollectionTotalTranscripts(0);
+      onError(err instanceof Error ? err.message : "Failed to load collection documents");
+      setCollectionDocuments([]);
+      setCollectionTotalDocuments(0);
     } finally {
       // Only clear loading if this request wasn't aborted
       if (!abortController.signal.aborted) {
         setIsLoadingCollections(false);
       }
     }
-  }, [onError, transcriptSort]);
+  }, [onError, documentSort]);
 
   const handleShowCollections = useCallback(() => {
     window.history.pushState({}, "", "/collections");
@@ -274,8 +273,8 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     setCollectionTitles([]);
     setTotalCollectionTitles(0);
     setTitlesCurrentPage(1);
-    setCollectionTranscripts([]);
-    setCollectionTotalTranscripts(0);
+    setCollectionDocuments([]);
+    setCollectionTotalDocuments(0);
     setCollectionCurrentPage(1);
     loadCollections();
   }, [loadCollections]);
@@ -295,8 +294,8 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     setCollectionTitles([]);
     setTotalCollectionTitles(0);
     setTitlesCurrentPage(1);
-    setCollectionTranscripts([]);
-    setCollectionTotalTranscripts(0);
+    setCollectionDocuments([]);
+    setCollectionTotalDocuments(0);
     setCollectionCurrentPage(1);
     loadCollections();
   }, [loadCollections]);
@@ -306,16 +305,16 @@ export function useCollections(onError: (error: string | null) => void): UseColl
       window.history.pushState({}, "", `/collections/${encodeURIComponent(selectedCollection)}/${encodeURIComponent(title)}`);
       setSelectedTitle(title);
       setCollectionCurrentPage(1);
-      loadCollectionTranscripts(selectedCollection, title, 1);
+      loadCollectionDocuments(selectedCollection, title, 1);
     }
-  }, [selectedCollection, loadCollectionTranscripts]);
+  }, [selectedCollection, loadCollectionDocuments]);
 
   const handleTitleBack = useCallback(() => {
     if (selectedCollection) {
       window.history.pushState({}, "", `/collections/${encodeURIComponent(selectedCollection)}`);
       setSelectedTitle(null);
-      setCollectionTranscripts([]);
-      setCollectionTotalTranscripts(0);
+      setCollectionDocuments([]);
+      setCollectionTotalDocuments(0);
       setCollectionCurrentPage(1);
       loadCollectionTitles(selectedCollection, 1);
     }
@@ -330,10 +329,10 @@ export function useCollections(onError: (error: string | null) => void): UseColl
 
   const handleCollectionPageChange = useCallback((page: number) => {
     if (selectedCollection && selectedTitle) {
-      updatePageAndSortInURL(page, transcriptSort);
-      loadCollectionTranscripts(selectedCollection, selectedTitle, page, transcriptSort);
+      updatePageAndSortInURL(page, documentSort);
+      loadCollectionDocuments(selectedCollection, selectedTitle, page, documentSort);
     }
-  }, [selectedCollection, selectedTitle, loadCollectionTranscripts, transcriptSort]);
+  }, [selectedCollection, selectedTitle, loadCollectionDocuments, documentSort]);
 
   const handleCollectionsListPageChange = useCallback((page: number) => {
     updatePageAndSortInURL(page, collectionSort);
@@ -351,14 +350,14 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setSelectedCollection(collectionFromUrl);
         setSelectedTitle(titleFromUrl);
         setCollectionCurrentPage(pageFromUrl);
-        setTranscriptSort(sortFromUrl);
-        loadCollectionTranscripts(collectionFromUrl, titleFromUrl, pageFromUrl, sortFromUrl);
+        setDocumentSort(sortFromUrl);
+        loadCollectionDocuments(collectionFromUrl, titleFromUrl, pageFromUrl, sortFromUrl);
       } else if (collectionFromUrl) {
         // URL: /collections/:collection
         setSelectedCollection(collectionFromUrl);
         setSelectedTitle(null);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
+        setCollectionDocuments([]);
+        setCollectionTotalDocuments(0);
         setTitlesCurrentPage(pageFromUrl);
         setTitleSort(sortFromUrl);
         loadCollectionTitles(collectionFromUrl, pageFromUrl, sortFromUrl);
@@ -368,14 +367,14 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setSelectedTitle(null);
         setCollectionTitles([]);
         setTotalCollectionTitles(0);
-        setCollectionTranscripts([]);
-        setCollectionTotalTranscripts(0);
+        setCollectionDocuments([]);
+        setCollectionTotalDocuments(0);
         setCollectionsListCurrentPage(pageFromUrl);
         setCollectionSort(sortFromUrl);
         loadCollections(pageFromUrl, sortFromUrl);
       }
     }
-  }, [loadCollections, loadCollectionTitles, loadCollectionTranscripts]);
+  }, [loadCollections, loadCollectionTitles, loadCollectionDocuments]);
 
   // Sort change handlers that reload data and update URL
   const handleCollectionSortChange = useCallback((sort: SortState) => {
@@ -392,13 +391,13 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     }
   }, [loadCollectionTitles, selectedCollection]);
 
-  const handleTranscriptSortChange = useCallback((sort: SortState) => {
-    setTranscriptSort(sort);
+  const handleDocumentSortChange = useCallback((sort: SortState) => {
+    setDocumentSort(sort);
     if (selectedCollection && selectedTitle) {
       updatePageAndSortInURL(1, sort);
-      loadCollectionTranscripts(selectedCollection, selectedTitle, 1, sort);
+      loadCollectionDocuments(selectedCollection, selectedTitle, 1, sort);
     }
-  }, [loadCollectionTranscripts, selectedCollection, selectedTitle]);
+  }, [loadCollectionDocuments, selectedCollection, selectedTitle]);
 
   return {
     collections,
@@ -410,15 +409,15 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     totalCollectionTitles,
     titlesCurrentPage,
     selectedTitle,
-    collectionTranscripts,
-    collectionTotalTranscripts,
+    collectionDocuments,
+    collectionTotalDocuments,
     collectionCurrentPage,
     collectionSort,
     titleSort,
-    transcriptSort,
+    documentSort,
     loadCollections,
     loadCollectionTitles,
-    loadCollectionTranscripts,
+    loadCollectionDocuments,
     handleShowCollections,
     handleSelectCollection,
     handleCollectionBack,
@@ -432,6 +431,6 @@ export function useCollections(onError: (error: string | null) => void): UseColl
     restoreCollectionsFromURL,
     setCollectionSort: handleCollectionSortChange,
     setTitleSort: handleTitleSortChange,
-    setTranscriptSort: handleTranscriptSortChange,
+    setDocumentSort: handleDocumentSortChange,
   };
 }

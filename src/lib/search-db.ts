@@ -681,7 +681,7 @@ export interface CollectionSummary {
   latestCreationDate: string | null;
 }
 
-export interface CollectionTranscript {
+export interface CollectionDocument {
   key: string;
   name: string;
   title: string | null;
@@ -690,8 +690,8 @@ export interface CollectionTranscript {
   size: number;
 }
 
-export interface CollectionTranscriptsResult {
-  transcripts: CollectionTranscript[];
+export interface CollectionDocumentsResult {
+  documents: CollectionDocument[];
   collection: string;
   total: number;
 }
@@ -799,14 +799,14 @@ export function getCollectionTitles(
   };
 }
 
-// Get transcripts in a collection (optionally filtered by title)
+// Get documents in a collection (optionally filtered by title)
 // When title is null, filters for documents with NULL title
 // When title is a string, filters for exact title match
 // When title is undefined, no title filter is applied
-export function getCollectionTranscripts(
+export function getCollectionDocuments(
   collection: string,
   options: { limit?: number; offset?: number; title?: string | null; sortBy?: SortField; sortOrder?: SortOrder } = {}
-): CollectionTranscriptsResult {
+): CollectionDocumentsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
@@ -844,7 +844,7 @@ export function getCollectionTranscripts(
     ? `natural_sort_key(name) ${sortOrder === "asc" ? "ASC" : "DESC"}`
     : `creation_date ${sortOrder === "asc" ? "ASC" : "DESC"}`;
 
-  // Get paginated transcripts sorted by specified field
+  // Get paginated documents sorted by specified field
   const stmt = database.prepare(`
     SELECT key, name, title, creation_date as creationDate, creation_date_iso as creationDateISO, size
     FROM documents
@@ -854,10 +854,10 @@ export function getCollectionTranscripts(
   `);
 
   selectParams.push(limit, offset);
-  const transcripts = stmt.all(...selectParams) as CollectionTranscript[];
+  const documents = stmt.all(...selectParams) as CollectionDocument[];
 
   return {
-    transcripts,
+    documents,
     collection,
     total,
   };
@@ -1021,6 +1021,12 @@ async function fetchFolderMetadata(folderPath: string): Promise<FolderMetadata |
       return null;
     }
 
+    // Validate version (must be 1)
+    if (metadata.version !== 1) {
+      console.warn(`[Reindex] Invalid metadata version at ${metadataKey}: expected 1, got "${metadata.version}"`);
+      return null;
+    }
+
     // Validate required fields
     if (typeof metadata.collection !== "string" || typeof metadata.title !== "string") {
       console.warn(`[Reindex] Missing collection or title in metadata at ${metadataKey}`);
@@ -1063,9 +1069,12 @@ function isValidTimestampEntry(value: unknown): value is TimestampEntry {
 
 // Fetch and parse timestamp manifest from S3
 export async function fetchTimestampManifest(): Promise<TimestampEntry[] | null> {
+  // Build manifest path using S3_INDEX_PREFIX
+  const prefix = S3_INDEX_PREFIX && !S3_INDEX_PREFIX.endsWith("/") ? S3_INDEX_PREFIX + "/" : S3_INDEX_PREFIX;
+  const manifestPath = `${prefix}timestamp_v1.json`;
   try {
     const content = await withTimeout(
-      s3.file("transcripts/timestamp_v1.json").text(),
+      s3.file(manifestPath).text(),
       S3_FETCH_TIMEOUT_MS,
       "fetch timestamp manifest"
     );

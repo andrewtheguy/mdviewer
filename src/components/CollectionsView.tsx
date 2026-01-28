@@ -21,12 +21,11 @@ export interface CollectionTitle {
   latestCreationDate: string | null;
 }
 
-export interface CollectionTranscript {
+export interface CollectionDocument {
   key: string;
   name: string;
   title: string | null;
   creationDate: number | null;
-  creationDateISO: string | null;
   size: number;
 }
 
@@ -44,8 +43,8 @@ interface CollectionsViewProps {
   selectedTitle: string | null;
   onSelectTitle: (title: string) => void;
   onTitleBack: () => void;
-  // Transcripts level
-  transcripts: CollectionTranscript[];
+  // Documents level
+  documents: CollectionDocument[];
   loading: boolean;
   onSelectCollection: (collection: string) => void;
   onBack: () => void;
@@ -53,15 +52,15 @@ interface CollectionsViewProps {
   onDownload: (key: string) => void;
   currentPage: number;
   pageSize: number;
-  totalTranscripts: number;
+  totalDocuments: number;
   onPageChange: (page: number) => void;
   // Sorting
   collectionSort: SortState;
   titleSort: SortState;
-  transcriptSort: SortState;
+  documentSort: SortState;
   onCollectionSortChange: (sort: SortState) => void;
   onTitleSortChange: (sort: SortState) => void;
-  onTranscriptSortChange: (sort: SortState) => void;
+  onDocumentSortChange: (sort: SortState) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -160,7 +159,7 @@ export function CollectionsView({
   selectedTitle,
   onSelectTitle,
   onTitleBack,
-  transcripts,
+  documents,
   loading,
   onSelectCollection,
   onBack,
@@ -168,16 +167,16 @@ export function CollectionsView({
   onDownload,
   currentPage,
   pageSize,
-  totalTranscripts,
+  totalDocuments,
   onPageChange,
   collectionSort,
   titleSort,
-  transcriptSort,
+  documentSort,
   onCollectionSortChange,
   onTitleSortChange,
-  onTranscriptSortChange,
+  onDocumentSortChange,
 }: CollectionsViewProps) {
-  const totalTranscriptPages = pageSize <= 0 ? 0 : Math.ceil(totalTranscripts / pageSize);
+  const totalDocumentPages = pageSize <= 0 ? 0 : Math.ceil(totalDocuments / pageSize);
   const totalCollectionPages = pageSize <= 0 ? 0 : Math.ceil(totalCollections / pageSize);
   const totalTitlePages = pageSize <= 0 ? 0 : Math.ceil(totalTitles / pageSize);
 
@@ -370,7 +369,7 @@ export function CollectionsView({
         </div>
       </div>
 
-      {transcripts.length === 0 ? (
+      {documents.length === 0 ? (
         <div className="text-center text-muted-foreground py-8">
           No files found for this title
         </div>
@@ -383,42 +382,42 @@ export function CollectionsView({
                   <SortableHeader
                     label="File"
                     field="name"
-                    currentSort={transcriptSort}
-                    onSort={onTranscriptSortChange}
+                    currentSort={documentSort}
+                    onSort={onDocumentSortChange}
                   />
                   <SortableHeader
                     label="Created"
                     field="date"
-                    currentSort={transcriptSort}
-                    onSort={onTranscriptSortChange}
+                    currentSort={documentSort}
+                    onSort={onDocumentSortChange}
                   />
                   <th className="text-right p-3 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {transcripts.map((transcript) => (
+                {documents.map((doc) => (
                   <tr
-                    key={transcript.key}
+                    key={doc.key}
                     className="border-t hover:bg-muted/30 cursor-pointer"
-                    onClick={() => onPreview(transcript.key)}
+                    onClick={() => onPreview(doc.key)}
                   >
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 shrink-0" />
                         <span className="break-all font-medium">
-                          {transcript.name}
+                          {doc.name}
                         </span>
                         <span className="text-muted-foreground text-xs whitespace-nowrap hidden sm:inline">
-                          ({formatBytes(transcript.size)})
+                          ({formatBytes(doc.size)})
                         </span>
                       </div>
                     </td>
                     <td className="p-3">
-                      {transcript.creationDate ? (
+                      {doc.creationDate ? (
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-sm">{getRelativeTime(transcript.creationDate)}</span>
+                          <span className="text-sm">{getRelativeTime(doc.creationDate)}</span>
                           <span className="text-xs text-muted-foreground hidden sm:block">
-                            {formatDate(transcript.creationDate)}
+                            {formatDate(doc.creationDate)}
                           </span>
                         </div>
                       ) : (
@@ -433,7 +432,7 @@ export function CollectionsView({
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() => onPreview(transcript.key)}
+                        onClick={() => onPreview(doc.key)}
                         title="Preview"
                       >
                         <Eye className="size-4" />
@@ -442,7 +441,7 @@ export function CollectionsView({
                         size="icon"
                         variant="ghost"
                         className="h-8 w-8"
-                        onClick={() => onDownload(transcript.key)}
+                        onClick={() => onDownload(doc.key)}
                         title="Download"
                       >
                         <Download className="size-4" />
@@ -456,8 +455,8 @@ export function CollectionsView({
 
           <Pagination
             currentPage={currentPage}
-            totalPages={totalTranscriptPages}
-            totalItems={totalTranscripts}
+            totalPages={totalDocumentPages}
+            totalItems={totalDocuments}
             pageSize={pageSize}
             loading={loading}
             onPageChange={onPageChange}

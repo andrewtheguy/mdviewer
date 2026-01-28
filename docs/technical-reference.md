@@ -146,14 +146,15 @@ The job runner supports incremental sync to update only changed entries without 
 ### How It Works
 
 1. **Periodic Check** - The job runner checks for updates at a configurable interval (default: 15 minutes)
-2. **Fetch Manifest** - Reads `transcripts/timestamp_v1.json` from S3
+2. **Fetch Manifest** - Reads `{S3_INDEX_PREFIX}/timestamp_v1.json` from S3
+   - If `S3_INDEX_PREFIX` is not set, defaults to `timestamp_v1.json` at the bucket root
 3. **Compare Timestamps** - Compares each entry's `chapter_updated_date` against the stored `last_source_timestamp`
 4. **Partial Reindex** - Only entries with timestamps >= the stored timestamp are reindexed
 5. **Update Timestamp** - On success (no errors), stores the max timestamp for future comparisons
 
 ### Timestamp Manifest Format
 
-The manifest file `transcripts/timestamp_v1.json` is a JSON array of entries:
+The manifest file `{S3_INDEX_PREFIX}/timestamp_v1.json` is a JSON array of entries:
 
 ```json
 [
@@ -229,7 +230,7 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `type` | string | Yes | Must be `"transcribefoldermetadata"` |
-| `version` | number | No | Schema version number |
+| `version` | number | Yes | Must be `1` |
 | `collection` | string | Yes | Collection/category name |
 | `title` | string | Yes | Title for the folder's contents |
 | `creation_date` | string | No | ISO 8601 datetime, overrides S3 lastModified |
@@ -313,7 +314,7 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 
 ```
 S3 Storage
-├── transcripts/
+├── {S3_INDEX_PREFIX}/
 │   ├── timestamp_v1.json  (sync manifest)
 │   └── folder/
 │       ├── file.txt

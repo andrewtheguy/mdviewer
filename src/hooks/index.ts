@@ -5,7 +5,7 @@ export {
   useCollections,
   type CollectionSummary,
   type CollectionTitle,
-  type CollectionTranscript,
+  type CollectionDocument,
   type UseCollectionsReturn,
   type SortField,
   type SortOrder,
