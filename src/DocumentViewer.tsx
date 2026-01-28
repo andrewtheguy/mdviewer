@@ -274,6 +274,8 @@ export function DocumentViewer() {
 
         // Detect reindex completion (was running, now not running)
         if (wasReindexingRef.current && !nowReindexing) {
+          // Clear any stale errors from 503 responses during reindex
+          setError(null);
           // Refresh current view after reindex completes
           restoreStateFromURLRef.current?.();
         }

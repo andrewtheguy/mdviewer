@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -73,11 +73,13 @@ const SCHEMA_VERSION_TABLE = `
 // Sync status table - tracks incremental sync state
 // last_source_timestamp: Max chapter_updated_date in seconds (for sync logic)
 // last_synced_at: Date.now() in milliseconds (for debugging)
+// needs_full_reindex: 1 if full reindex is required (shared between processes)
 const SYNC_STATUS_TABLE = `
   CREATE TABLE IF NOT EXISTS sync_status (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     last_source_timestamp INTEGER,
-    last_synced_at INTEGER
+    last_synced_at INTEGER,
+    needs_full_reindex INTEGER NOT NULL DEFAULT 0
   );
 `;
 
@@ -932,7 +934,6 @@ export function getReindexStatus(): ReindexStatus {
 
 // Sync operation state
 let syncOperationRunning = false;
-let syncNeedsFullReindex = false;
 
 export function isSyncOperationRunning(): boolean {
   return syncOperationRunning || reindexStatus.running;
@@ -942,12 +943,41 @@ export function setSyncOperationRunning(value: boolean): void {
   syncOperationRunning = value;
 }
 
+// Track if we've already logged the schema mismatch (avoid repeated logs on each request)
+let schemaVersionMismatchLogged = false;
+
+// Check if full reindex is needed (schema mismatch or sync flag set)
+// Also sets the flag if schema version mismatches
+export function checkNeedsFullReindex(): boolean {
+  const dbVersion = getSchemaVersion();
+  if (dbVersion !== SCHEMA_VERSION) {
+    if (!schemaVersionMismatchLogged) {
+      console.log(`[DB] Schema version mismatch: DB=${dbVersion}, expected=${SCHEMA_VERSION}. Full reindex required.`);
+      schemaVersionMismatchLogged = true;
+    }
+    setSyncNeedsFullReindex(true);
+  } else {
+    schemaVersionMismatchLogged = false;
+  }
+  return getSyncNeedsFullReindex();
+}
+
 export function getSyncNeedsFullReindex(): boolean {
-  return syncNeedsFullReindex;
+  const database = getDatabase();
+  const stmt = database.prepare("SELECT needs_full_reindex FROM sync_status WHERE id = 1");
+  const result = stmt.get() as { needs_full_reindex: number } | undefined;
+  // Return true if no row exists (fresh DB needs reindex) or flag is set
+  if (result === undefined) return true;
+  return result.needs_full_reindex === 1;
 }
 
 export function setSyncNeedsFullReindex(value: boolean): void {
-  syncNeedsFullReindex = value;
+  const database = getDatabase();
+  database.prepare(`
+    INSERT INTO sync_status (id, needs_full_reindex)
+    VALUES (1, ?)
+    ON CONFLICT(id) DO UPDATE SET needs_full_reindex = excluded.needs_full_reindex
+  `).run(value ? 1 : 0);
 }
 
 // Metadata interface for folder metadata.json files
@@ -1521,6 +1551,7 @@ export async function runReindex(): Promise<void> {
 // Start a reindex job (returns immediately, runs in background)
 export function startReindex(): { success: boolean; message: string } {
   if (reindexStatus.running || syncOperationRunning) {
+    console.log("[Reindex] Blocked: reindex or sync already in progress");
     return { success: false, message: "Reindex or sync already in progress" };
   }
 
