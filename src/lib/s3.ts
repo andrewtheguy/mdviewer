@@ -20,13 +20,14 @@ const client = new S3Client({
 });
 
 export const s3 = {
-  async list() {
+  async list(options?: { prefix?: string }) {
     const allContents: { key: string | undefined; size: number | undefined; lastModified: string | undefined }[] = [];
     let continuationToken: string | undefined;
 
     do {
       const command = new ListObjectsV2Command({
         Bucket: bucket,
+        Prefix: options?.prefix,
         ContinuationToken: continuationToken,
       });
       const response = await client.send(command);

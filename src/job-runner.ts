@@ -1,5 +1,17 @@
 import express from "express";
-import { startReindex, getReindexStatus } from "./lib/search-db";
+import {
+  startReindex,
+  getReindexStatus,
+  getLastSourceTimestamp,
+  getLastSyncedAt,
+  setLastSourceTimestamp,
+  fetchTimestampManifest,
+  reindexPaths,
+  isSyncOperationRunning,
+  setSyncOperationRunning,
+  getSyncNeedsFullReindex,
+  setSyncNeedsFullReindex,
+} from "./lib/search-db";
 
 // Global error handlers to prevent silent crashes
 process.on("uncaughtException", (error) => {
@@ -11,8 +23,87 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 const PORT = process.env.JOB_RUNNER_PORT || 3001;
+const SYNC_CHECK_INTERVAL_MS = parseInt(process.env.SYNC_CHECK_INTERVAL_MS || "60000", 10);
+const SYNC_ENABLED = process.env.SYNC_ENABLED !== "false";
+const S3_INDEX_PREFIX = process.env.S3_INDEX_PREFIX || "";
 
 const app = express();
+
+// Check for updated entries and sync incrementally
+async function checkAndSync(): Promise<void> {
+  // Check mutual exclusion
+  if (isSyncOperationRunning()) {
+    console.log("[Sync] Skipping: reindex or sync already running");
+    return;
+  }
+
+  setSyncOperationRunning(true);
+
+  try {
+    // Fetch timestamp manifest
+    const manifest = await fetchTimestampManifest();
+    if (!manifest || manifest.length === 0) {
+      console.log("[Sync] No timestamp manifest found or empty");
+      return;
+    }
+
+    // Filter entries by S3_INDEX_PREFIX
+    const filteredEntries = S3_INDEX_PREFIX
+      ? manifest.filter(e => e.storage_prefix.startsWith(S3_INDEX_PREFIX))
+      : manifest;
+
+    if (filteredEntries.length === 0) {
+      console.log("[Sync] No entries match S3_INDEX_PREFIX");
+      return;
+    }
+
+    // Parse timestamps to seconds
+    const entriesWithTimestamps = filteredEntries.map(e => ({
+      ...e,
+      timestampSeconds: Math.floor(new Date(e.chapter_updated_date).getTime() / 1000),
+    })).filter(e => !isNaN(e.timestampSeconds) && isFinite(e.timestampSeconds));
+
+    if (entriesWithTimestamps.length === 0) {
+      console.log("[Sync] No valid timestamps in manifest");
+      return;
+    }
+
+    // Get DB timestamp
+    const dbTimestamp = getLastSourceTimestamp();
+    const earliestTimestamp = Math.min(...entriesWithTimestamps.map(e => e.timestampSeconds));
+
+    // Check if full reindex required
+    if (dbTimestamp === null || dbTimestamp < earliestTimestamp) {
+      console.log(`[Sync] Full reindex required: DB timestamp=${dbTimestamp}, earliest=${earliestTimestamp}`);
+      setSyncNeedsFullReindex(true);
+      return;
+    }
+
+    // Find entries that need syncing (>= dbTimestamp)
+    const entriesToSync = entriesWithTimestamps.filter(e => e.timestampSeconds >= dbTimestamp);
+
+    if (entriesToSync.length === 0) {
+      console.log("[Sync] No entries need syncing");
+      return;
+    }
+
+    console.log(`[Sync] Found ${entriesToSync.length} entries to sync`);
+
+    // Reindex the paths
+    const prefixes = entriesToSync.map(e => e.storage_prefix);
+    const result = await reindexPaths(prefixes);
+
+    // Update timestamp to max of synced entries
+    const maxTimestamp = Math.max(...entriesToSync.map(e => e.timestampSeconds));
+    setLastSourceTimestamp(maxTimestamp);
+
+    console.log(`[Sync] Complete: indexed=${result.indexed}, errors=${result.errors}, new timestamp=${maxTimestamp}`);
+  } catch (error) {
+    console.error("[Sync] Error during sync check:", error);
+  } finally {
+    setSyncOperationRunning(false);
+  }
+}
 
 app.post("/reindex", (_req, res) => {
   try {
@@ -38,6 +129,26 @@ app.get("/status", (_req, res) => {
   }
 });
 
+app.get("/sync/status", (_req, res) => {
+  res.json({
+    enabled: SYNC_ENABLED,
+    intervalMs: SYNC_CHECK_INTERVAL_MS,
+    lastSourceTimestamp: getLastSourceTimestamp(),
+    lastSyncedAt: getLastSyncedAt(),
+    needsFullReindex: getSyncNeedsFullReindex(),
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`[JobRunner] Running on http://localhost:${PORT}`);
+
+  // Start periodic sync check
+  if (SYNC_ENABLED) {
+    console.log(`[Sync] Periodic check every ${SYNC_CHECK_INTERVAL_MS}ms`);
+    setInterval(() => checkAndSync().catch(console.error), SYNC_CHECK_INTERVAL_MS);
+    // Initial check after 5s startup delay
+    setTimeout(() => checkAndSync().catch(console.error), 5000);
+  } else {
+    console.log("[Sync] Disabled via SYNC_ENABLED=false");
+  }
 });

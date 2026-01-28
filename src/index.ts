@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats, SCHEMA_VERSION, getSchemaVersion, type SortField, type SortOrder } from "./lib/search-db";
+import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionTranscripts, getStats, SCHEMA_VERSION, getSchemaVersion, getSyncNeedsFullReindex, type SortField, type SortOrder } from "./lib/search-db";
 
 // Validate and decode base64 URL-safe encoded key
 // Throws Error if input contains invalid base64url characters
@@ -132,10 +132,17 @@ app.use("/api", (req, res, next) => {
     }
   }
 
+  // Also check if sync requires full reindex
+  const syncNeedsReindex = getSyncNeedsFullReindex();
+
   // Allow exact /search/reindex or subpaths like /search/reindex/status
   const isReindexRoute = req.path === "/search/reindex" || req.path.startsWith("/search/reindex/");
-  if (needsReindex && !isReindexRoute) {
-    res.status(503).json({ error: "Reindex required", needsReindex: true });
+  if ((needsReindex || syncNeedsReindex) && !isReindexRoute) {
+    res.status(503).json({
+      error: "Reindex required",
+      needsReindex: true,
+      reason: needsReindex ? "schema_mismatch" : "sync_outdated",
+    });
     return;
   }
   next();
