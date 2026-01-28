@@ -1551,6 +1551,7 @@ export async function runReindex(): Promise<void> {
 // Start a reindex job (returns immediately, runs in background)
 export function startReindex(): { success: boolean; message: string } {
   if (reindexStatus.running || syncOperationRunning) {
+    console.log("[Reindex] Blocked: reindex or sync already in progress");
     return { success: false, message: "Reindex or sync already in progress" };
   }
 
