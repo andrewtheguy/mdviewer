@@ -308,12 +308,12 @@ export function DocumentViewer() {
         if (wasSyncingRef.current && !nowSyncing) {
           setError(null);
           restoreStateFromURLRef.current?.();
-          setIsSyncing(false);
-          wasSyncingRef.current = false;
         }
 
         wasReindexingRef.current = nowReindexing;
         setIsReindexing(nowReindexing);
+        wasSyncingRef.current = nowSyncing;
+        setIsSyncing(nowSyncing);
       } catch (err) {
         consecutiveStatusFailuresRef.current++;
         console.error(
