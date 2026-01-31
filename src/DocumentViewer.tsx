@@ -289,8 +289,9 @@ export function DocumentViewer() {
     const checkStatus = async () => {
       try {
         const response = await fetch("/api/search/reindex/status");
-        const data = await response.json();
+        const data: { running: boolean; syncing: boolean } = await response.json();
         const nowReindexing = data.running;
+        const nowSyncing = data.syncing;
 
         // Reset failure counter on success
         consecutiveStatusFailuresRef.current = 0;
@@ -303,8 +304,8 @@ export function DocumentViewer() {
           restoreStateFromURLRef.current?.();
         }
 
-        // Detect sync completion (was syncing, now not running)
-        if (wasSyncingRef.current && !nowReindexing) {
+        // Detect sync completion (was syncing, now not syncing)
+        if (wasSyncingRef.current && !nowSyncing) {
           setError(null);
           restoreStateFromURLRef.current?.();
           setIsSyncing(false);

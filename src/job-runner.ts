@@ -9,6 +9,7 @@ import {
   reindexPaths,
   isSyncOperationRunning,
   setSyncOperationRunning,
+  getSyncRunning,
   checkNeedsFullReindex,
   setSyncNeedsFullReindex,
 } from "./lib/search-db";
@@ -44,22 +45,31 @@ const S3_INDEX_PREFIX = process.env.S3_INDEX_PREFIX || "";
 
 const app = express();
 
-// Check for updated entries and sync incrementally
-async function checkAndSync(): Promise<void> {
-  // Skip if full reindex is required (checks both schema version and sync flag)
+type TryStartSyncResult =
+  | { started: true }
+  | { started: false; reason: "needs_reindex" | "already_running" };
+
+// Atomically check conditions and start sync if possible
+// Returns whether sync was started, and if not, why
+function tryStartSync(): TryStartSyncResult {
   if (checkNeedsFullReindex()) {
-    console.log("[Sync] Skipping: full reindex required");
-    return;
+    return { started: false, reason: "needs_reindex" };
   }
-
-  // Check mutual exclusion
   if (isSyncOperationRunning()) {
-    console.log("[Sync] Skipping: reindex or sync already running");
-    return;
+    return { started: false, reason: "already_running" };
   }
 
+  // Acquire lock and start sync
   setSyncOperationRunning(true);
+  runSync().catch(error => {
+    console.error("[Sync] Error during sync:", error);
+  });
 
+  return { started: true };
+}
+
+// Internal sync implementation - assumes lock is already held
+async function runSync(): Promise<void> {
   try {
     // Fetch timestamp manifest
     const manifest = await fetchTimestampManifest();
@@ -129,6 +139,18 @@ async function checkAndSync(): Promise<void> {
   }
 }
 
+// Check for updated entries and sync incrementally (used by periodic sync)
+function checkAndSync(): void {
+  const result = tryStartSync();
+  if (!result.started) {
+    if (result.reason === "needs_reindex") {
+      console.log("[Sync] Skipping: full reindex required");
+    } else {
+      console.log("[Sync] Skipping: reindex or sync already running");
+    }
+  }
+}
+
 app.post("/reindex", (_req, res) => {
   const result = startReindex();
   if (result.success) {
@@ -139,7 +161,10 @@ app.post("/reindex", (_req, res) => {
 });
 
 app.get("/status", (_req, res) => {
-  res.json(getReindexStatus());
+  res.json({
+    ...getReindexStatus(),
+    syncing: getSyncRunning(),
+  });
 });
 
 app.get("/sync/status", (_req, res) => {
@@ -153,18 +178,14 @@ app.get("/sync/status", (_req, res) => {
 });
 
 app.post("/sync", (_req, res) => {
-  if (checkNeedsFullReindex()) {
-    throw new HttpError(409, "Full reindex required before sync can run");
+  const result = tryStartSync();
+  if (!result.started) {
+    if (result.reason === "needs_reindex") {
+      throw new HttpError(409, "Full reindex required before sync can run");
+    } else {
+      throw new HttpError(409, "Sync or reindex already in progress");
+    }
   }
-  if (isSyncOperationRunning()) {
-    throw new HttpError(409, "Sync or reindex already in progress");
-  }
-
-  // Run async, return immediately
-  checkAndSync().catch(error => {
-    console.error("[Sync] Error during manual sync:", error);
-  });
-
   res.json({ success: true, message: "Sync started" });
 });
 
@@ -190,21 +211,9 @@ app.listen(PORT, () => {
   // Start periodic sync check
   if (SYNC_ENABLED) {
     console.log(`[Sync] Periodic check every ${SYNC_CHECK_INTERVAL_S}s`);
-    setInterval(async () => {
-      try {
-        await checkAndSync();
-      } catch (error) {
-        console.error(error);
-      }
-    }, SYNC_CHECK_INTERVAL_S * 1000);
+    setInterval(checkAndSync, SYNC_CHECK_INTERVAL_S * 1000);
     // Initial check after 5s startup delay
-    setTimeout(async () => {
-      try {
-        await checkAndSync();
-      } catch (error) {
-        console.error(error);
-      }
-    }, 5000);
+    setTimeout(checkAndSync, 5000);
   } else {
     console.log("[Sync] Disabled via SYNC_ENABLED=false");
   }

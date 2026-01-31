@@ -943,6 +943,10 @@ export function setSyncOperationRunning(value: boolean): void {
   syncOperationRunning = value;
 }
 
+export function getSyncRunning(): boolean {
+  return syncOperationRunning;
+}
+
 // Track if we've already logged the schema mismatch (avoid repeated logs on each request)
 let schemaVersionMismatchLogged = false;
 
