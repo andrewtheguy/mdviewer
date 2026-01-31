@@ -111,6 +111,7 @@ async function runSync(): Promise<void> {
     }
 
     // Find entries that need syncing (>= dbTimestamp), doing >= to always resync the last entry with the same timestamp
+    // to make sure nothing is missed if multiple entries share the same timestamp
     const entriesToSync = entriesWithTimestamps.filter(e => e.timestampSeconds >= dbTimestamp);
 
     if (entriesToSync.length === 0) {
