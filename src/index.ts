@@ -267,6 +267,13 @@ app.get("/api/search/reindex/status", async (_req, res) => {
   res.json(data);
 });
 
+app.post("/api/search/sync", async (_req, res) => {
+  const data = await fetchOrThrow(`${JOB_RUNNER_URL}/sync`, {
+    method: "POST",
+  });
+  res.json(data);
+});
+
 app.get("/api/search/stats", (_req, res) => {
   const stats = getStats();
   res.json(stats);

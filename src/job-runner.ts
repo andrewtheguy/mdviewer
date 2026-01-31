@@ -152,6 +152,22 @@ app.get("/sync/status", (_req, res) => {
   });
 });
 
+app.post("/sync", (_req, res) => {
+  if (checkNeedsFullReindex()) {
+    throw new HttpError(409, "Full reindex required before sync can run");
+  }
+  if (isSyncOperationRunning()) {
+    throw new HttpError(409, "Sync or reindex already in progress");
+  }
+
+  // Run async, return immediately
+  checkAndSync().catch(error => {
+    console.error("[Sync] Error during manual sync:", error);
+  });
+
+  res.json({ success: true, message: "Sync started" });
+});
+
 // Global error handler middleware (4 params required for Express to recognize as error handler)
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
