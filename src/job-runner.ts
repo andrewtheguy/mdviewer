@@ -9,7 +9,7 @@ import {
   reindexPaths,
   isSyncOperationRunning,
   setSyncOperationRunning,
-  getSyncRunning,
+  isSyncRunning,
   checkNeedsFullReindex,
   setSyncNeedsFullReindex,
 } from "./lib/search-db";
@@ -110,7 +110,7 @@ async function runSync(): Promise<void> {
       return;
     }
 
-    // Find entries that need syncing (>= dbTimestamp)
+    // Find entries that need syncing (>= dbTimestamp), doing >= to always resync the last entry with the same timestamp
     const entriesToSync = entriesWithTimestamps.filter(e => e.timestampSeconds >= dbTimestamp);
 
     if (entriesToSync.length === 0) {
@@ -133,7 +133,7 @@ async function runSync(): Promise<void> {
       console.log(`[Sync] Complete with errors: indexed=${result.indexed}, errors=${result.errors} (timestamp not updated, will retry)`);
     }
   } catch (error) {
-    console.error("[Sync] Error during sync check:", error);
+    console.error("[Sync] Error during sync execution:", error);
   } finally {
     setSyncOperationRunning(false);
   }
@@ -163,7 +163,7 @@ app.post("/reindex", (_req, res) => {
 app.get("/status", (_req, res) => {
   res.json({
     ...getReindexStatus(),
-    syncing: getSyncRunning(),
+    syncing: isSyncRunning(),
   });
 });
 

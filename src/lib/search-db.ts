@@ -943,7 +943,7 @@ export function setSyncOperationRunning(value: boolean): void {
   syncOperationRunning = value;
 }
 
-export function getSyncRunning(): boolean {
+export function isSyncRunning(): boolean {
   return syncOperationRunning;
 }
 
