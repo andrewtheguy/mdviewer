@@ -263,7 +263,14 @@ app.post("/api/search/reindex", async (_req, res) => {
 });
 
 app.get("/api/search/reindex/status", async (_req, res) => {
-  const data = await fetchOrThrow<{ running: boolean }>(`${JOB_RUNNER_URL}/status`);
+  const data = await fetchOrThrow<{ running: boolean; syncing: boolean }>(`${JOB_RUNNER_URL}/status`);
+  res.json(data);
+});
+
+app.post("/api/search/sync", async (_req, res) => {
+  const data = await fetchOrThrow(`${JOB_RUNNER_URL}/sync`, {
+    method: "POST",
+  });
   res.json(data);
 });
 

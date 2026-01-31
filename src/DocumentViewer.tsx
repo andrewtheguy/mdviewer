@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults } from "@/components/SearchResults";
 import { RecentFiles } from "@/components/RecentFiles";
 import { CollectionsView } from "@/components/CollectionsView";
-import { Loader2, Clock, RotateCw, Library, ChevronLeft } from "lucide-react";
+import { Loader2, Clock, RotateCw, Library, ChevronLeft, RefreshCw } from "lucide-react";
 import {
   usePreview,
   useSearch,
@@ -27,8 +27,9 @@ import {
 export function DocumentViewer() {
   const [error, setError] = useState<string | null>(null);
 
-  // Reindex state
+  // Reindex and sync state
   const [isReindexing, setIsReindexing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Use custom hooks for state management
   const preview = usePreview();
@@ -71,8 +72,9 @@ export function DocumentViewer() {
     };
   });
 
-  // Track previous reindexing state to detect completion
+  // Track previous reindexing/syncing state to detect completion
   const wasReindexingRef = useRef(false);
+  const wasSyncingRef = useRef(false);
   // Ref to store restoreStateFromURL for use in polling effect
   const restoreStateFromURLRef = useRef<(() => void) | null>(null);
   // Track consecutive status check failures for debugging
@@ -107,6 +109,27 @@ export function DocumentViewer() {
       setError(err instanceof Error ? err.message : "Failed to reindex");
       setIsReindexing(false);
       wasReindexingRef.current = false;
+    }
+  }, []);
+
+  const handleSync = useCallback(async () => {
+    setError(null);
+    setIsSyncing(true);
+    wasSyncingRef.current = true;
+    try {
+      const response = await fetch("/api/search/sync", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || `Sync failed with status ${response.status}`);
+        setIsSyncing(false);
+        wasSyncingRef.current = false;
+        return;
+      }
+      // Started successfully - polling will track progress
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sync");
+      setIsSyncing(false);
+      wasSyncingRef.current = false;
     }
   }, []);
 
@@ -261,13 +284,14 @@ export function DocumentViewer() {
     restoreStateFromURLRef.current = restoreStateFromURL;
   });
 
-  // Check reindex status on mount and poll while reindexing
+  // Check reindex/sync status on mount and poll while operations are running
   useEffect(() => {
     const checkStatus = async () => {
       try {
         const response = await fetch("/api/search/reindex/status");
-        const data = await response.json();
+        const data: { running: boolean; syncing: boolean } = await response.json();
         const nowReindexing = data.running;
+        const nowSyncing = data.syncing;
 
         // Reset failure counter on success
         consecutiveStatusFailuresRef.current = 0;
@@ -280,8 +304,16 @@ export function DocumentViewer() {
           restoreStateFromURLRef.current?.();
         }
 
+        // Detect sync completion (was syncing, now not syncing)
+        if (wasSyncingRef.current && !nowSyncing) {
+          setError(null);
+          restoreStateFromURLRef.current?.();
+        }
+
         wasReindexingRef.current = nowReindexing;
         setIsReindexing(nowReindexing);
+        wasSyncingRef.current = nowSyncing;
+        setIsSyncing(nowSyncing);
       } catch (err) {
         consecutiveStatusFailuresRef.current++;
         console.error(
@@ -293,12 +325,12 @@ export function DocumentViewer() {
 
     checkStatus();
 
-    // Poll while reindexing
-    if (isReindexing) {
+    // Poll while reindexing or syncing
+    if (isReindexing || isSyncing) {
       const interval = setInterval(checkStatus, 2000);
       return () => clearInterval(interval);
     }
-  }, [isReindexing]);
+  }, [isReindexing, isSyncing]);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   useEffect(() => {
@@ -366,6 +398,25 @@ export function DocumentViewer() {
     }
   };
 
+  // Show syncing overlay when sync is in progress
+  if (isSyncing) {
+    return (
+      <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
+        <CardContent className="p-6">
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <Loader2 className="size-12 animate-spin text-muted-foreground" />
+            <div className="text-center space-y-2">
+              <h2 className="text-lg font-semibold">Syncing Updates</h2>
+              <p className="text-sm text-muted-foreground">
+                Checking for and indexing new content...
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   // Show reindexing overlay when reindex is in progress
   if (isReindexing) {
     return (
@@ -393,15 +444,28 @@ export function DocumentViewer() {
             <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
             <CardDescription>Browse and view markdown or text files</CardDescription>
           </div>
-          <Button
-            onClick={handleReindex}
-            variant="outline"
-            size="sm"
-            className="gap-2"
-          >
-            <RotateCw className="size-4" />
-            <span>Reindex</span>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={handleSync}
+              variant="default"
+              size="sm"
+              className="gap-2"
+              disabled={isSyncing || isReindexing}
+            >
+              <RefreshCw className="size-4" />
+              <span>Sync</span>
+            </Button>
+            <Button
+              onClick={handleReindex}
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              disabled={isSyncing || isReindexing}
+            >
+              <RotateCw className="size-4" />
+              <span>Full Reindex</span>
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0 sm:p-6 pt-0 sm:pt-0 space-y-4">
