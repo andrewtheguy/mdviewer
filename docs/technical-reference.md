@@ -304,6 +304,48 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | POST | `/api/auth/logout` | Clear active auth session |
 | GET | `/api/auth/check` | Check whether current request is authenticated |
 
+### Cookie and Session Spec
+
+Authentication uses an opaque session token stored in an HTTP cookie.
+
+#### Session Cookie
+
+| Field | Value |
+|-------|-------|
+| Cookie name | `mdviewer_session` |
+| Value format | Opaque UUID token (server-generated) |
+| `HttpOnly` | `true` |
+| `SameSite` | `Strict` |
+| `Path` | `/` |
+| `Secure` | Added only when request is HTTPS (`req.secure` or `x-forwarded-proto=https`) |
+
+#### Session Lifetime
+
+| Property | Value |
+|----------|-------|
+| Session TTL | 24 hours |
+| Expiration model | Sliding expiration (TTL refreshes on each authenticated request) |
+| Expired-session purge interval | 1 hour |
+| Persistence | In-memory only (server restart invalidates all sessions) |
+
+#### Logout and Invalidation
+
+- `POST /api/auth/logout` invalidates the current server-side token and returns a clearing cookie:
+  - `mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+- If an unknown/expired token is presented, the request is treated as unauthenticated.
+
+#### Auth Scope
+
+- `/api/auth/*` endpoints are public.
+- All non-auth API endpoints are under `/api/app/*` and require authentication.
+
+#### Login Rate Limiting
+
+- Login attempts are rate-limited by client IP:
+  - Maximum attempts: 5
+  - Window: 60 seconds
+- Exceeding the limit returns `429 Too Many Requests`.
+
 ### Search Operations
 
 | Method | Endpoint | Description |

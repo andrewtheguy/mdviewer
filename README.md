@@ -40,7 +40,7 @@ Authentication is enabled by default and uses username/password login with a bcr
 1. Generate a packed credential value:
 
 ```bash
-npm run gen_auth -- <username>
+npm run gen-auth -- <username>
 ```
 
 2. Set `AUTH_CREDENTIAL_B64` in `.env` to the generated value.

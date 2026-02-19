@@ -12,7 +12,7 @@
     "dev:client": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "gen_auth": "node --import tsx scripts/gen-auth.ts",
+    "gen-auth": "node --import tsx scripts/gen-auth.ts",
     "start": "node --env-file-if-exists=.env --import tsx src/index.ts",
     "job-runner": "node --env-file-if-exists=.env --import tsx src/job-runner.ts"
   },

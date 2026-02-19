@@ -6,7 +6,7 @@ import { stdin, stdout } from "node:process";
 const username = process.argv[2]?.trim() ?? "";
 
 if (!username) {
-  console.error("Usage: npm run gen_auth -- <username>");
+  console.error("Usage: npm run gen-auth -- <username>");
   process.exit(1);
 }
 
