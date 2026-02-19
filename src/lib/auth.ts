@@ -19,6 +19,7 @@ interface AuthConfig {
 
 const validTokens = new Map<string, SessionData>();
 let authConfig: AuthConfig | null = null;
+let purgeIntervalStarted = false;
 
 function isBcryptHash(value: string): boolean {
   return /^\$2[aby]\$\d\d\$[./A-Za-z0-9]{53}$/.test(value);
@@ -33,9 +34,12 @@ function purgeExpiredTokens(): void {
   }
 }
 
-setInterval(purgeExpiredTokens, PURGE_INTERVAL_MS).unref();
-
 export function initAuthFromEnv(env: NodeJS.ProcessEnv = process.env): { disabled: boolean } {
+  if (!purgeIntervalStarted) {
+    setInterval(purgeExpiredTokens, PURGE_INTERVAL_MS).unref();
+    purgeIntervalStarted = true;
+  }
+
   const disabled = env.AUTH_DISABLED === "true";
 
   if (disabled) {

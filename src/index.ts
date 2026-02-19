@@ -40,6 +40,21 @@ const LOGIN_WINDOW_MS = 60_000;
 type LoginAttemptRecord = { count: number; resetAt: number };
 const loginAttempts = new Map<string, LoginAttemptRecord>();
 
+function pruneExpiredLoginAttempts(): void {
+  const now = Date.now();
+  for (const [ip, record] of loginAttempts) {
+    if (record.resetAt <= now) {
+      loginAttempts.delete(ip);
+    }
+  }
+}
+
+const loginAttemptsPruneInterval = setInterval(pruneExpiredLoginAttempts, LOGIN_WINDOW_MS);
+loginAttemptsPruneInterval.unref();
+process.once("exit", () => {
+  clearInterval(loginAttemptsPruneInterval);
+});
+
 function checkLoginRateLimit(ip: string): boolean {
   const now = Date.now();
   const record = loginAttempts.get(ip);

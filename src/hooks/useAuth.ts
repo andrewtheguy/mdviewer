@@ -6,7 +6,7 @@ export interface UseAuthReturn {
   status: AuthStatus;
   error: string | null;
   isLoggingIn: boolean;
-  checkAuth: () => Promise<void>;
+  checkAuth: (signal?: AbortSignal) => Promise<void>;
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   markUnauthorized: () => void;
@@ -30,6 +30,13 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
   }
 }
 
+function isAbortError(error: unknown): boolean {
+  if (error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+  return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
+}
+
 export function useAuth(): UseAuthReturn {
   const [status, setStatus] = useState<AuthStatus>("checking");
   const [error, setError] = useState<string | null>(null);
@@ -44,14 +51,24 @@ export function useAuth(): UseAuthReturn {
     return false;
   }, []);
 
-  const checkAuth = useCallback(async () => {
-    setStatus("checking");
-    setError(null);
+  const checkAuth = useCallback(async (signal?: AbortSignal) => {
+    const controller = signal ? null : new AbortController();
+    const requestSignal = signal ?? controller?.signal;
+
+    if (!requestSignal?.aborted) {
+      setStatus("checking");
+      setError(null);
+    }
 
     try {
-      const response = await fetch("/api/auth/check");
+      const response = await fetch("/api/auth/check", { signal: requestSignal });
+      if (requestSignal?.aborted) {
+        return;
+      }
       if (response.ok) {
-        setStatus("authenticated");
+        if (!requestSignal?.aborted) {
+          setStatus("authenticated");
+        }
         return;
       }
 
@@ -59,21 +76,34 @@ export function useAuth(): UseAuthReturn {
         if (forceResetToRoot()) {
           return;
         }
-        setStatus("unauthenticated");
+        if (!requestSignal?.aborted) {
+          setStatus("unauthenticated");
+        }
         return;
       }
 
       const message = await readErrorMessage(response, "Failed to check authentication status");
-      setStatus("unauthenticated");
-      setError(message);
+      if (!requestSignal?.aborted) {
+        setStatus("unauthenticated");
+        setError(message);
+      }
     } catch (err) {
-      setStatus("unauthenticated");
-      setError(err instanceof Error ? err.message : "Failed to check authentication status");
+      if (requestSignal?.aborted || isAbortError(err)) {
+        return;
+      }
+      if (!requestSignal?.aborted) {
+        setStatus("unauthenticated");
+        setError(err instanceof Error ? err.message : "Failed to check authentication status");
+      }
     }
   }, [forceResetToRoot]);
 
   useEffect(() => {
-    void checkAuth();
+    const controller = new AbortController();
+    void checkAuth(controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [checkAuth]);
 
   const login = useCallback(async (username: string, password: string): Promise<boolean> => {
