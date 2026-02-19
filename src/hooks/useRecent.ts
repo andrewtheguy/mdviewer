@@ -35,7 +35,10 @@ export interface UseRecentReturn {
   restoreRecentFromURL: () => void;
 }
 
-export function useRecent(onError: (error: string | null) => void): UseRecentReturn {
+export function useRecent(
+  onError: (error: string | null) => void,
+  onUnauthorized: () => void
+): UseRecentReturn {
   const [isRecentMode, setIsRecentMode] = useState(isRecentViewFromURL);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [recentTotalFiles, setRecentTotalFiles] = useState(0);
@@ -44,6 +47,13 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
   const [recentCurrentPage, setRecentCurrentPage] = useState(1);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const onErrorRef = useRef(onError);
+  const onUnauthorizedRef = useRef(onUnauthorized);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onUnauthorizedRef.current = onUnauthorized;
+  }, [onError, onUnauthorized]);
 
   // Cleanup: abort any in-flight request on unmount
   useEffect(() => {
@@ -62,9 +72,16 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`,
+        `/api/app/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`,
         { signal: controller.signal }
       );
+
+      if (response.status === 401) {
+        setRecentFiles([]);
+        setRecentTotalFiles(0);
+        onUnauthorizedRef.current();
+        return;
+      }
 
       // Check HTTP status before parsing JSON
       if (!response.ok) {
@@ -84,7 +101,7 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
         } catch {
           // Ignore body reading errors
         }
-        onError(errorMessage);
+        onErrorRef.current(errorMessage);
         setRecentFiles([]);
         setRecentTotalFiles(0);
         return;
@@ -92,7 +109,7 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
 
       const data = await response.json();
       if (data.error) {
-        onError(data.error);
+        onErrorRef.current(data.error);
         setRecentFiles([]);
         setRecentTotalFiles(0);
       } else {
@@ -105,7 +122,7 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      onError(err instanceof Error ? err.message : "Failed to load recent files");
+      onErrorRef.current(err instanceof Error ? err.message : "Failed to load recent files");
       setRecentFiles([]);
       setRecentTotalFiles(0);
       setRecentCurrentPage(1);
@@ -115,7 +132,7 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
         setIsLoadingRecent(false);
       }
     }
-  }, [onError]);
+  }, []);
 
   const handleRecentPageChange = useCallback((page: number) => {
     const url = new URL(window.location.href);

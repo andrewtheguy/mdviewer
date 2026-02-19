@@ -78,7 +78,7 @@ The reindex process rebuilds the search index from S3 storage. It runs asynchron
 
 ### Triggering a Reindex
 
-1. **Via API:** `POST /api/search/reindex` on the main server (port 3000)
+1. **Via API:** `POST /api/app/search/reindex` on the main server (port 3000)
 2. **Direct:** `POST /reindex` on the job runner (port 3001)
 
 ### Reindex Steps
@@ -119,7 +119,7 @@ The reindex process rebuilds the search index from S3 storage. It runs asynchron
 
 ### Status Tracking
 
-The reindex status can be checked via `GET /api/search/reindex/status`:
+The reindex status can be checked via `GET /api/app/search/reindex/status`:
 
 ```json
 {
@@ -271,6 +271,13 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | `SQLITE_DB_PATH` | No | Path to SQLite database (default: `./data/search.sqlite`) |
 | `JOB_RUNNER_URL` | No | URL for job runner service (default: `http://localhost:3001`) |
 
+### Authentication Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AUTH_DISABLED` | No | Set to `true` to disable authentication (default: `false`) |
+| `AUTH_CREDENTIAL_B64` | Yes (when auth enabled) | Base64-encoded `username:bcryptHash` value (`bcryptHash` must be `$2a$`, `$2b$`, or `$2y$`) |
+
 ### Sync Configuration
 
 | Variable | Required | Description |
@@ -284,25 +291,234 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/documents/list` | List all documents (from database) |
-| GET | `/api/documents/recent` | List recent `.txt` and `.md` files |
-| GET | `/api/documents/download?key=<encoded>` | Download a file |
-| GET | `/api/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
+| GET | `/api/app/documents/list` | List all documents (from database) |
+| GET | `/api/app/documents/recent` | List recent `.txt` and `.md` files |
+| GET | `/api/app/documents/download?key=<encoded>` | Download a file |
+| GET | `/api/app/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
+
+### Authentication Operations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Authenticate with username/password and set session cookie |
+| POST | `/api/auth/logout` | Clear active auth session |
+| GET | `/api/auth/check` | Check whether current request is authenticated |
+
+#### POST `/api/auth/login`
+
+Authenticate user credentials and start a session.
+
+Request body (JSON):
+
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+Responses:
+
+- `200 OK` (auth enabled, valid credentials): sets session cookie and returns:
+
+```json
+{
+  "ok": true
+}
+```
+
+- `200 OK` (when `AUTH_DISABLED=true`):
+
+```json
+{
+  "ok": true,
+  "authDisabled": true
+}
+```
+
+- `400 Bad Request` (missing/invalid body fields):
+
+```json
+{
+  "error": "Missing username or password"
+}
+```
+
+- `401 Unauthorized` (invalid credentials):
+
+```json
+{
+  "error": "Invalid credentials"
+}
+```
+
+- `429 Too Many Requests` (login rate limit):
+
+```json
+{
+  "error": "Too many attempts, try again later"
+}
+```
+
+Example request:
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{"username":"admin","password":"secret"}
+```
+
+Example success response (auth enabled):
+
+```http
+HTTP/1.1 200 OK
+Set-Cookie: mdviewer_session=<token>; HttpOnly; SameSite=Strict; Path=/[; Secure]
+Content-Type: application/json
+
+{"ok":true}
+```
+
+#### POST `/api/auth/logout`
+
+Invalidate current session token (if present) and clear auth cookie.
+
+Request body: none.
+
+Responses:
+
+- `200 OK`:
+
+```json
+{
+  "ok": true
+}
+```
+
+Notes:
+
+- Response includes cookie clearing header:
+  - `Set-Cookie: mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+- This endpoint returns `200` even when no session is present, as part of the API contract.
+
+Example request/response:
+
+```http
+POST /api/auth/logout
+```
+
+```http
+HTTP/1.1 200 OK
+Set-Cookie: mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0
+Content-Type: application/json
+
+{"ok":true}
+```
+
+#### GET `/api/auth/check`
+
+Check whether the current request is authenticated.
+
+Responses:
+
+- `200 OK`:
+
+```json
+{
+  "authenticated": true
+}
+```
+
+- `401 Unauthorized`:
+
+```json
+{
+  "authenticated": false
+}
+```
+
+Notes:
+
+- When `AUTH_DISABLED=true`, this endpoint returns `200` with `{"authenticated": true}`.
+
+Example request/response:
+
+```http
+GET /api/auth/check
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"authenticated":true}
+```
+
+### Cookie and Session Spec
+
+Authentication uses an opaque session token stored in an HTTP cookie.
+
+#### Session Cookie
+
+| Field | Value |
+|-------|-------|
+| Cookie name | `mdviewer_session` |
+| Value format | Opaque UUID token (server-generated) |
+| `HttpOnly` | `true` |
+| `SameSite` | `Strict` |
+| `Path` | `/` |
+| `Secure` | Added only when request is HTTPS (`req.secure` or `x-forwarded-proto=https`) |
+
+#### Session Lifetime
+
+| Property | Value |
+|----------|-------|
+| Session TTL | 24 hours |
+| Expiration model | Sliding expiration (TTL refreshes on each authenticated request) |
+| Expired-session purge interval | 1 hour |
+| Persistence | In-memory only (server restart invalidates all sessions) |
+
+#### Logout and Invalidation
+
+- `POST /api/auth/logout` invalidates the current server-side token and returns a clearing cookie:
+  - `mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+- If an unknown/expired token is presented, the request is treated as unauthenticated.
+
+#### Auth Scope
+
+- `/api/auth/*` endpoints are public.
+- All non-auth main-server endpoints are under `/api/app/*` and require authentication.
+- Unauthenticated requests to `/api/app/*` return `401 Unauthorized` with:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+- Job-runner endpoints on port `3001` (for example `/reindex`, `/status`, `/sync`, `/sync/status`, etc.) are intended for internal-only service-to-service access and should not be exposed publicly.
+
+#### Login Rate Limiting
+
+- Login attempts are rate-limited by client IP:
+  - Maximum attempts: 5
+  - Window: 60 seconds
+- Exceeding the limit returns `429 Too Many Requests`.
 
 ### Search Operations
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/search?q=<query>` | Search indexed files |
-| POST | `/api/search/reindex` | Trigger full reindex |
-| GET | `/api/search/reindex/status` | Check reindex status |
-| GET | `/api/search/stats` | Get index statistics |
+| GET | `/api/app/search?q=<query>` | Search indexed files |
+| POST | `/api/app/search/reindex` | Trigger full reindex |
+| GET | `/api/app/search/reindex/status` | Check reindex status |
+| GET | `/api/app/search/stats` | Get index statistics |
 
 ### Sync Operations (Job Runner - port 3001)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/sync/status` | Check sync status and configuration |
+| GET | `/sync/status` | Check sync status and configuration (internal-only; do not expose publicly) |
 
 ### Notes
 

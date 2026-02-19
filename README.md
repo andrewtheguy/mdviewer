@@ -33,6 +33,22 @@ Copy `.env.example` to `.env` and configure your environment variables:
 cp .env.example .env
 ```
 
+## Authentication
+
+Authentication is enabled by default and uses username/password login with a bcrypt password hash.
+
+1. Generate a packed credential value:
+
+```bash
+npm run gen-auth -- <username>
+```
+
+2. Set `AUTH_CREDENTIAL_B64` in `.env` to the generated value.
+
+Set `AUTH_DISABLED=true` to disable authentication entirely.
+
+The main app server on port `3000` is protected. The job-runner service on port `3001` is unchanged and not covered by this auth layer.
+
 ## Running
 
 ### Development

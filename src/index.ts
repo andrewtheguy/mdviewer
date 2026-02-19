@@ -1,6 +1,17 @@
 import express from "express";
 import path from "path";
 import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionDocuments, getStats, checkNeedsFullReindex, type SortField, type SortOrder } from "./lib/search-db";
+import {
+  clearSessionCookie,
+  createSession as createAuthSession,
+  extractSessionToken,
+  getSessionCookie,
+  initAuthFromEnv,
+  invalidateSession,
+  isAuthDisabled,
+  isRequestAuthenticated,
+  verifyCredentials,
+} from "./lib/auth";
 
 class HttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -23,6 +34,62 @@ const JOB_RUNNER_URL = process.env.JOB_RUNNER_URL || "http://localhost:3001";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const isProduction = process.env.NODE_ENV === "production";
 const DEFAULT_FETCH_TIMEOUT_MS = 10000;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 60_000;
+
+type LoginAttemptRecord = { count: number; resetAt: number };
+const loginAttempts = new Map<string, LoginAttemptRecord>();
+
+function pruneExpiredLoginAttempts(): void {
+  const now = Date.now();
+  for (const [ip, record] of loginAttempts) {
+    if (record.resetAt <= now) {
+      loginAttempts.delete(ip);
+    }
+  }
+}
+
+const loginAttemptsPruneInterval = setInterval(pruneExpiredLoginAttempts, LOGIN_WINDOW_MS);
+loginAttemptsPruneInterval.unref();
+process.once("exit", () => {
+  clearInterval(loginAttemptsPruneInterval);
+});
+
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+  if (!record || now >= record.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return true;
+  }
+  record.count += 1;
+  return record.count <= LOGIN_MAX_ATTEMPTS;
+}
+
+function clearLoginAttempts(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
+function isSecureRequest(req: express.Request): boolean {
+  return req.secure || req.get("x-forwarded-proto") === "https";
+}
+
+function getClientIp(req: express.Request): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+try {
+  const authConfig = initAuthFromEnv();
+  if (authConfig.disabled) {
+    console.warn("[auth] AUTH_DISABLED=true, authentication is disabled");
+  } else {
+    console.log("[auth] Authentication enabled");
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : "Unknown auth configuration error";
+  console.error(`[auth] Failed to initialize authentication: ${message}`);
+  process.exit(1);
+}
 
 // Parse and validate pagination parameters from query string
 function parsePagination(
@@ -110,10 +177,70 @@ const app = express();
 
 app.use(express.json());
 
-// Middleware to block API routes when reindex is required
-// Allows reindex endpoints through so users can trigger the reindex
-app.use("/api", (req, res, next) => {
-  // Allow exact /search/reindex or subpaths like /search/reindex/status
+app.post("/api/auth/login", async (req, res) => {
+  if (isAuthDisabled()) {
+    res.json({ ok: true, authDisabled: true });
+    return;
+  }
+
+  const ip = getClientIp(req);
+  if (!checkLoginRateLimit(ip)) {
+    console.warn(`[auth] rate-limited login from ${ip}`);
+    res.status(429).json({ error: "Too many attempts, try again later" });
+    return;
+  }
+
+  const body = req.body as { username?: unknown; password?: unknown };
+  if (typeof body.username !== "string" || typeof body.password !== "string") {
+    res.status(400).json({ error: "Missing username or password" });
+    return;
+  }
+
+  // eslint-disable-next-line no-control-regex
+  const safeUsername = body.username.replace(new RegExp("[\\x00-\\x1f\\x7f]", "g"), "").slice(0, 64);
+  if (!(await verifyCredentials(body.username, body.password))) {
+    console.warn(`[auth] invalid login attempt from ${ip} (user: ${safeUsername})`);
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  clearLoginAttempts(ip);
+  console.log(`[auth] login success for user "${safeUsername}" from ${ip}`);
+  const token = createAuthSession(body.username);
+  res.setHeader("Set-Cookie", getSessionCookie(token, isSecureRequest(req)));
+  res.json({ ok: true });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = extractSessionToken(req);
+  if (token) {
+    invalidateSession(token);
+  }
+  res.setHeader("Set-Cookie", clearSessionCookie());
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/check", (req, res) => {
+  if (isAuthDisabled() || isRequestAuthenticated(req)) {
+    res.json({ authenticated: true });
+    return;
+  }
+  res.status(401).json({ authenticated: false });
+});
+
+const appApi = express.Router();
+
+appApi.use((req, res, next) => {
+  if (isAuthDisabled() || isRequestAuthenticated(req)) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: "Unauthorized" });
+});
+
+// Middleware to block app API routes when reindex is required.
+// Allow reindex endpoints through so users can trigger the reindex.
+appApi.use((req, res, next) => {
   const isReindexRoute = req.path === "/search/reindex" || req.path.startsWith("/search/reindex/");
   if (checkNeedsFullReindex() && !isReindexRoute) {
     res.status(503).json({
@@ -126,21 +253,21 @@ app.use("/api", (req, res, next) => {
 });
 
 // Document API Routes (served from database)
-app.get("/api/documents/list", (req, res) => {
+appApi.get("/documents/list", (req, res) => {
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 100 });
   const result = listDocuments({ limit, offset });
   res.json({ objects: result.objects, total: result.total });
 });
 
 // Browse folder endpoint - returns folders and paginated files at a path
-app.get("/api/documents/browse", (req, res) => {
+appApi.get("/documents/browse", (req, res) => {
   const requestPath = (req.query.path as string) || "";
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
   const result = browseFolder({ path: requestPath, limit, offset });
   res.json(result);
 });
 
-app.get("/api/documents/download", (req, res) => {
+appApi.get("/documents/download", (req, res) => {
   const encodedKey = req.query.key as string | undefined;
   if (!encodedKey) {
     throw new HttpError(400, "Missing key parameter");
@@ -174,7 +301,7 @@ app.get("/api/documents/download", (req, res) => {
   res.send(doc.content);
 });
 
-app.get("/api/documents/preview", (req, res) => {
+appApi.get("/documents/preview", (req, res) => {
   const encodedKey = req.query.key as string | undefined;
   if (!encodedKey) {
     throw new HttpError(400, "Missing key parameter");
@@ -213,7 +340,7 @@ app.get("/api/documents/preview", (req, res) => {
 });
 
 // Recent files endpoint - returns recently updated .txt and .md files from database
-app.get("/api/documents/recent", (req, res) => {
+appApi.get("/documents/recent", (req, res) => {
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
 
   // Validate typeFilter against allowed values
@@ -236,7 +363,7 @@ app.get("/api/documents/recent", (req, res) => {
 });
 
 // Search API Routes
-app.get("/api/search", (req, res) => {
+appApi.get("/search", (req, res) => {
   const query = (req.query.q as string) || "";
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 20 });
 
@@ -255,39 +382,39 @@ app.get("/api/search", (req, res) => {
   });
 });
 
-app.post("/api/search/reindex", async (_req, res) => {
+appApi.post("/search/reindex", async (_req, res) => {
   const data = await fetchOrThrow(`${JOB_RUNNER_URL}/reindex`, {
     method: "POST",
   });
   res.json(data);
 });
 
-app.get("/api/search/reindex/status", async (_req, res) => {
+appApi.get("/search/reindex/status", async (_req, res) => {
   const data = await fetchOrThrow<{ running: boolean; syncing: boolean }>(`${JOB_RUNNER_URL}/status`);
   res.json(data);
 });
 
-app.post("/api/search/sync", async (_req, res) => {
+appApi.post("/search/sync", async (_req, res) => {
   const data = await fetchOrThrow(`${JOB_RUNNER_URL}/sync`, {
     method: "POST",
   });
   res.json(data);
 });
 
-app.get("/api/search/stats", (_req, res) => {
+appApi.get("/search/stats", (_req, res) => {
   const stats = getStats();
   res.json(stats);
 });
 
 // Collections API Routes
-app.get("/api/collections", (req, res) => {
+appApi.get("/collections", (req, res) => {
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
   const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
   const result = getCollections({ limit, offset, sortBy, sortOrder });
   res.json(result);
 });
 
-app.get("/api/collections/:collection", (req, res) => {
+appApi.get("/collections/:collection", (req, res) => {
   const { collection } = req.params;
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
   const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
@@ -296,7 +423,7 @@ app.get("/api/collections/:collection", (req, res) => {
   res.json(result);
 });
 
-app.get("/api/collections/:collection/documents/:title", (req, res) => {
+appApi.get("/collections/:collection/documents/:title", (req, res) => {
   const { collection, title: titleParam } = req.params;
   // Translate placeholder to null for querying documents with NULL title
   const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
@@ -306,6 +433,8 @@ app.get("/api/collections/:collection/documents/:title", (req, res) => {
   const result = getCollectionDocuments(collection, { limit, offset, title, sortBy, sortOrder });
   res.json(result);
 });
+
+app.use("/api/app", appApi);
 
 // Serve static files in production
 if (isProduction) {
