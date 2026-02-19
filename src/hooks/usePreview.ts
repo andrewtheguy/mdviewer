@@ -20,7 +20,7 @@ export interface UsePreviewReturn {
   restorePreviewFromURL: () => void;
 }
 
-export function usePreview(): UsePreviewReturn {
+export function usePreview(onUnauthorized: () => void): UsePreviewReturn {
   const [previewFile, setPreviewFile] = useState<string | null>(getPreviewFromQueryParam);
   const [previewContent, setPreviewContent] = useState<string>("");
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -34,6 +34,10 @@ export function usePreview(): UsePreviewReturn {
     setPreviewError(null);
     try {
       const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`, { signal });
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
       if (!response.ok) {
         let errorMessage = "Failed to preview file";
         try {
@@ -66,7 +70,7 @@ export function usePreview(): UsePreviewReturn {
         setPreviewLoading(false);
       }
     }
-  }, []);
+  }, [onUnauthorized]);
 
   const handlePreview = useCallback((key: string) => {
     const url = new URL(window.location.href);

@@ -11,7 +11,7 @@ export function encodeKey(key: string): string {
 }
 
 // Decode base64 URL-safe key
-export function decodeKey(encoded: string): string {
+function decodeKey(encoded: string): string {
   let base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
   while (base64.length % 4) {
     base64 += "=";
@@ -150,9 +150,4 @@ export function updatePageAndSortInURL(page: number, sort: SortState): void {
     url.searchParams.set("sortOrder", sort.sortOrder);
   }
   window.history.pushState({}, "", `${url.pathname}${url.search}`);
-}
-
-// Update page query param in URL and push to history (preserves current sort)
-export function updatePageInURL(page: number): void {
-  updatePageAndSortInURL(page, getSortFromURL());
 }

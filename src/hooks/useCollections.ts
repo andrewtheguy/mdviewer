@@ -78,7 +78,10 @@ export interface UseCollectionsReturn {
   setDocumentSort: (sort: SortState) => void;
 }
 
-export function useCollections(onError: (error: string | null) => void): UseCollectionsReturn {
+export function useCollections(
+  onError: (error: string | null) => void,
+  onUnauthorized: () => void
+): UseCollectionsReturn {
   // Collections state
   const [collections, setCollections] = useState<CollectionSummary[]>([]);
   const [totalCollections, setTotalCollections] = useState(0);
@@ -139,6 +142,12 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         `/api/collections?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
+      if (response.status === 401) {
+        onUnauthorized();
+        setCollections([]);
+        setTotalCollections(0);
+        return;
+      }
       if (!response.ok) {
         const errorBody = await response.text();
         onError(`Failed to load collections: ${response.status} ${errorBody || response.statusText}`);
@@ -170,7 +179,7 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setIsLoadingCollections(false);
       }
     }
-  }, [onError, collectionSort]);
+  }, [onError, onUnauthorized, collectionSort]);
 
   const loadCollectionTitles = useCallback(async (collection: string, page = 1, sort?: SortState) => {
     // Abort any in-flight request
@@ -186,6 +195,12 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
+      if (response.status === 401) {
+        onUnauthorized();
+        setCollectionTitles([]);
+        setTotalCollectionTitles(0);
+        return;
+      }
       if (!response.ok) {
         const errorBody = await response.text();
         onError(`Failed to load collection titles: ${response.status} ${errorBody || response.statusText}`);
@@ -217,7 +232,7 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setIsLoadingCollections(false);
       }
     }
-  }, [onError, titleSort]);
+  }, [onError, onUnauthorized, titleSort]);
 
   const loadCollectionDocuments = useCallback(async (collection: string, title: string, page = 1, sort?: SortState) => {
     // Abort any in-flight request
@@ -233,6 +248,12 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         `/api/collections/${encodeURIComponent(collection)}/documents/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
+      if (response.status === 401) {
+        onUnauthorized();
+        setCollectionDocuments([]);
+        setCollectionTotalDocuments(0);
+        return;
+      }
       if (!response.ok) {
         const errorBody = await response.text();
         onError(`Failed to load collection documents: ${response.status} ${errorBody || response.statusText}`);
@@ -264,7 +285,7 @@ export function useCollections(onError: (error: string | null) => void): UseColl
         setIsLoadingCollections(false);
       }
     }
-  }, [onError, documentSort]);
+  }, [onError, onUnauthorized, documentSort]);
 
   const handleShowCollections = useCallback(() => {
     window.history.pushState({}, "", "/collections");

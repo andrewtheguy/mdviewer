@@ -36,7 +36,10 @@ export interface UseSearchReturn {
   clearSearchState: () => void;
 }
 
-export function useSearch(onError: (error: string | null) => void): UseSearchReturn {
+export function useSearch(
+  onError: (error: string | null) => void,
+  onUnauthorized: () => void
+): UseSearchReturn {
   const initialSearchQuery = getSearchQueryFromURL();
   const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
@@ -75,6 +78,12 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
         `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`,
         { signal: controller.signal }
       );
+
+      if (response.status === 401) {
+        setIsSearching(false);
+        onUnauthorized();
+        return;
+      }
 
       // Check HTTP status before parsing JSON
       if (!response.ok) {
@@ -116,7 +125,7 @@ export function useSearch(onError: (error: string | null) => void): UseSearchRet
       setSearchCurrentPage(1);
       setIsSearching(false);
     }
-  }, [onError]);
+  }, [onError, onUnauthorized]);
 
   const handleSearch = useCallback((query: string, updateUrl = true) => {
     setSearchQuery(query);

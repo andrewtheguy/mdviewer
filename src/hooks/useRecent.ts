@@ -35,7 +35,10 @@ export interface UseRecentReturn {
   restoreRecentFromURL: () => void;
 }
 
-export function useRecent(onError: (error: string | null) => void): UseRecentReturn {
+export function useRecent(
+  onError: (error: string | null) => void,
+  onUnauthorized: () => void
+): UseRecentReturn {
   const [isRecentMode, setIsRecentMode] = useState(isRecentViewFromURL);
   const [recentFiles, setRecentFiles] = useState<RecentFile[]>([]);
   const [recentTotalFiles, setRecentTotalFiles] = useState(0);
@@ -65,6 +68,11 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
         `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`,
         { signal: controller.signal }
       );
+
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
 
       // Check HTTP status before parsing JSON
       if (!response.ok) {
@@ -115,7 +123,7 @@ export function useRecent(onError: (error: string | null) => void): UseRecentRet
         setIsLoadingRecent(false);
       }
     }
-  }, [onError]);
+  }, [onError, onUnauthorized]);
 
   const handleRecentPageChange = useCallback((page: number) => {
     const url = new URL(window.location.href);

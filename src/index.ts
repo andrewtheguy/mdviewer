@@ -1,6 +1,17 @@
 import express from "express";
 import path from "path";
 import { search, listDocuments, getRecentDocuments, getDocument, getDocumentMetadata, browseFolder, getCollections, getCollectionTitles, getCollectionDocuments, getStats, checkNeedsFullReindex, type SortField, type SortOrder } from "./lib/search-db";
+import {
+  clearSessionCookie,
+  createSession as createAuthSession,
+  extractSessionToken,
+  getSessionCookie,
+  initAuthFromEnv,
+  invalidateSession,
+  isAuthDisabled,
+  isRequestAuthenticated,
+  verifyCredentials,
+} from "./lib/auth";
 
 class HttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -23,6 +34,47 @@ const JOB_RUNNER_URL = process.env.JOB_RUNNER_URL || "http://localhost:3001";
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const isProduction = process.env.NODE_ENV === "production";
 const DEFAULT_FETCH_TIMEOUT_MS = 10000;
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 60_000;
+
+type LoginAttemptRecord = { count: number; resetAt: number };
+const loginAttempts = new Map<string, LoginAttemptRecord>();
+
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const record = loginAttempts.get(ip);
+  if (!record || now >= record.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    return true;
+  }
+  record.count += 1;
+  return record.count <= LOGIN_MAX_ATTEMPTS;
+}
+
+function clearLoginAttempts(ip: string): void {
+  loginAttempts.delete(ip);
+}
+
+function isSecureRequest(req: express.Request): boolean {
+  return req.secure || req.get("x-forwarded-proto") === "https";
+}
+
+function getClientIp(req: express.Request): string {
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+try {
+  const authConfig = initAuthFromEnv();
+  if (authConfig.disabled) {
+    console.warn("[auth] AUTH_DISABLED=true, authentication is disabled");
+  } else {
+    console.log("[auth] Authentication enabled");
+  }
+} catch (error) {
+  const message = error instanceof Error ? error.message : "Unknown auth configuration error";
+  console.error(`[auth] Failed to initialize authentication: ${message}`);
+  process.exit(1);
+}
 
 // Parse and validate pagination parameters from query string
 function parsePagination(
@@ -110,12 +162,73 @@ const app = express();
 
 app.use(express.json());
 
+app.post("/api/auth/login", async (req, res) => {
+  if (isAuthDisabled()) {
+    res.json({ ok: true, authDisabled: true });
+    return;
+  }
+
+  const ip = getClientIp(req);
+  if (!checkLoginRateLimit(ip)) {
+    console.warn(`[auth] rate-limited login from ${ip}`);
+    res.status(429).json({ error: "Too many attempts, try again later" });
+    return;
+  }
+
+  const body = req.body as { username?: unknown; password?: unknown };
+  if (typeof body.username !== "string" || typeof body.password !== "string") {
+    res.status(400).json({ error: "Missing username or password" });
+    return;
+  }
+
+  // eslint-disable-next-line no-control-regex
+  const safeUsername = body.username.replace(new RegExp("[\\x00-\\x1f\\x7f]", "g"), "").slice(0, 64);
+  if (!(await verifyCredentials(body.username, body.password))) {
+    console.warn(`[auth] invalid login attempt from ${ip} (user: ${safeUsername})`);
+    res.status(401).json({ error: "Invalid credentials" });
+    return;
+  }
+
+  clearLoginAttempts(ip);
+  console.log(`[auth] login success for user "${safeUsername}" from ${ip}`);
+  const token = createAuthSession(body.username);
+  res.setHeader("Set-Cookie", getSessionCookie(token, isSecureRequest(req)));
+  res.json({ ok: true });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = extractSessionToken(req);
+  if (token) {
+    invalidateSession(token);
+  }
+  res.setHeader("Set-Cookie", clearSessionCookie());
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/check", (req, res) => {
+  if (isAuthDisabled() || isRequestAuthenticated(req)) {
+    res.json({ authenticated: true });
+    return;
+  }
+  res.status(401).json({ authenticated: false });
+});
+
+app.use("/api", (req, res, next) => {
+  const isAuthRoute = req.path.startsWith("/auth/");
+  if (isAuthRoute || isAuthDisabled() || isRequestAuthenticated(req)) {
+    next();
+    return;
+  }
+  res.status(401).json({ error: "Unauthorized" });
+});
+
 // Middleware to block API routes when reindex is required
 // Allows reindex endpoints through so users can trigger the reindex
 app.use("/api", (req, res, next) => {
   // Allow exact /search/reindex or subpaths like /search/reindex/status
   const isReindexRoute = req.path === "/search/reindex" || req.path.startsWith("/search/reindex/");
-  if (checkNeedsFullReindex() && !isReindexRoute) {
+  const isAuthRoute = req.path.startsWith("/auth/");
+  if (checkNeedsFullReindex() && !isReindexRoute && !isAuthRoute) {
     res.status(503).json({
       error: "Reindex required",
       needsReindex: true,

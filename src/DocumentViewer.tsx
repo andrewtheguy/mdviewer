@@ -6,7 +6,7 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults } from "@/components/SearchResults";
 import { RecentFiles } from "@/components/RecentFiles";
 import { CollectionsView } from "@/components/CollectionsView";
-import { Loader2, Clock, RotateCw, Library, ChevronLeft, RefreshCw } from "lucide-react";
+import { Loader2, Clock, RotateCw, Library, ChevronLeft, RefreshCw, LogOut } from "lucide-react";
 import {
   usePreview,
   useSearch,
@@ -24,7 +24,12 @@ import {
   getTypeFilterFromURL,
 } from "@/hooks";
 
-export function DocumentViewer() {
+interface DocumentViewerProps {
+  onLogout: () => Promise<void>;
+  onUnauthorized: () => void;
+}
+
+export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Reindex and sync state
@@ -32,10 +37,10 @@ export function DocumentViewer() {
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Use custom hooks for state management
-  const preview = usePreview();
-  const search = useSearch(setError);
-  const recent = useRecent(setError);
-  const collections = useCollections(setError);
+  const preview = usePreview(onUnauthorized);
+  const search = useSearch(setError, onUnauthorized);
+  const recent = useRecent(setError, onUnauthorized);
+  const collections = useCollections(setError, onUnauthorized);
 
   // Refs to store latest hook methods for stable callbacks
   // This prevents callbacks from being recreated on every hook state change
@@ -96,6 +101,12 @@ export function DocumentViewer() {
     wasReindexingRef.current = true;
     try {
       const response = await fetch("/api/search/reindex", { method: "POST" });
+      if (response.status === 401) {
+        setIsReindexing(false);
+        wasReindexingRef.current = false;
+        onUnauthorized();
+        return;
+      }
       const data = await response.json();
 
       if (!response.ok) {
@@ -110,7 +121,7 @@ export function DocumentViewer() {
       setIsReindexing(false);
       wasReindexingRef.current = false;
     }
-  }, []);
+  }, [onUnauthorized]);
 
   const handleSync = useCallback(async () => {
     setError(null);
@@ -118,6 +129,12 @@ export function DocumentViewer() {
     wasSyncingRef.current = true;
     try {
       const response = await fetch("/api/search/sync", { method: "POST" });
+      if (response.status === 401) {
+        setIsSyncing(false);
+        wasSyncingRef.current = false;
+        onUnauthorized();
+        return;
+      }
       const data = await response.json();
       if (!response.ok) {
         setError(data.error || `Sync failed with status ${response.status}`);
@@ -131,11 +148,15 @@ export function DocumentViewer() {
       setIsSyncing(false);
       wasSyncingRef.current = false;
     }
-  }, []);
+  }, [onUnauthorized]);
 
   const handleDownload = useCallback(async (key: string) => {
     try {
       const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
+      if (response.status === 401) {
+        onUnauthorized();
+        return;
+      }
       if (!response.ok) {
         let errorMessage = "Failed to download file";
         try {
@@ -165,7 +186,11 @@ export function DocumentViewer() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to download file");
     }
-  }, []);
+  }, [onUnauthorized]);
+
+  const handleLogout = useCallback(() => {
+    void onLogout();
+  }, [onLogout]);
 
   // Coordinated handlers that manage multiple hooks and close preview
   const handleShowCollections = useCallback(() => {
@@ -289,6 +314,14 @@ export function DocumentViewer() {
     const checkStatus = async () => {
       try {
         const response = await fetch("/api/search/reindex/status");
+        if (response.status === 401) {
+          setIsReindexing(false);
+          setIsSyncing(false);
+          wasReindexingRef.current = false;
+          wasSyncingRef.current = false;
+          onUnauthorized();
+          return;
+        }
         const data: { running: boolean; syncing: boolean } = await response.json();
         const nowReindexing = data.running;
         const nowSyncing = data.syncing;
@@ -330,7 +363,7 @@ export function DocumentViewer() {
       const interval = setInterval(checkStatus, 2000);
       return () => clearInterval(interval);
     }
-  }, [isReindexing, isSyncing]);
+  }, [isReindexing, isSyncing, onUnauthorized]);
 
   // Trigger search on initial load if query in URL, or load recent files if on /recent, or load collections if on /collections
   useEffect(() => {
@@ -464,6 +497,16 @@ export function DocumentViewer() {
             >
               <RotateCw className="size-4" />
               <span>Full Reindex</span>
+            </Button>
+            <Button
+              onClick={handleLogout}
+              variant="ghost"
+              size="sm"
+              className="gap-2"
+              disabled={isSyncing || isReindexing}
+            >
+              <LogOut className="size-4" />
+              <span>Logout</span>
             </Button>
           </div>
         </div>

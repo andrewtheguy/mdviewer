@@ -271,6 +271,13 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | `SQLITE_DB_PATH` | No | Path to SQLite database (default: `./data/search.sqlite`) |
 | `JOB_RUNNER_URL` | No | URL for job runner service (default: `http://localhost:3001`) |
 
+### Authentication Configuration
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AUTH_DISABLED` | No | Set to `true` to disable authentication (default: `false`) |
+| `AUTH_CREDENTIAL_B64` | Yes (when auth enabled) | Base64-encoded `username:bcryptHash` value (`bcryptHash` must be `$2a$`, `$2b$`, or `$2y$`) |
+
 ### Sync Configuration
 
 | Variable | Required | Description |
@@ -288,6 +295,14 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | GET | `/api/documents/recent` | List recent `.txt` and `.md` files |
 | GET | `/api/documents/download?key=<encoded>` | Download a file |
 | GET | `/api/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
+
+### Authentication Operations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Authenticate with username/password and set session cookie |
+| POST | `/api/auth/logout` | Clear active auth session |
+| GET | `/api/auth/check` | Check whether current request is authenticated |
 
 ### Search Operations
 
