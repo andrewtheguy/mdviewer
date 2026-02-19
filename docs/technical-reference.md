@@ -487,7 +487,16 @@ Authentication uses an opaque session token stored in an HTTP cookie.
 #### Auth Scope
 
 - `/api/auth/*` endpoints are public.
-- All non-auth API endpoints are under `/api/app/*` and require authentication.
+- All non-auth main-server endpoints are under `/api/app/*` and require authentication.
+- Unauthenticated requests to `/api/app/*` return `401 Unauthorized` with:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+- Job-runner endpoints on port `3001` (for example `/reindex`, `/status`, `/sync`, `/sync/status`) are intended for internal-only service-to-service access and should not be exposed publicly.
 
 #### Login Rate Limiting
 
@@ -509,7 +518,7 @@ Authentication uses an opaque session token stored in an HTTP cookie.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/sync/status` | Check sync status and configuration |
+| GET | `/sync/status` | Check sync status and configuration (internal-only; do not expose publicly) |
 
 ### Notes
 
