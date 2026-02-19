@@ -304,6 +304,156 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 | POST | `/api/auth/logout` | Clear active auth session |
 | GET | `/api/auth/check` | Check whether current request is authenticated |
 
+#### POST `/api/auth/login`
+
+Authenticate user credentials and start a session.
+
+Request body (JSON):
+
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+Responses:
+
+- `200 OK` (auth enabled, valid credentials): sets session cookie and returns:
+
+```json
+{
+  "ok": true
+}
+```
+
+- `200 OK` (when `AUTH_DISABLED=true`):
+
+```json
+{
+  "ok": true,
+  "authDisabled": true
+}
+```
+
+- `400 Bad Request` (missing/invalid body fields):
+
+```json
+{
+  "error": "Missing username or password"
+}
+```
+
+- `401 Unauthorized` (invalid credentials):
+
+```json
+{
+  "error": "Invalid credentials"
+}
+```
+
+- `429 Too Many Requests` (login rate limit):
+
+```json
+{
+  "error": "Too many attempts, try again later"
+}
+```
+
+Example request:
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{"username":"admin","password":"secret"}
+```
+
+Example success response (auth enabled):
+
+```http
+HTTP/1.1 200 OK
+Set-Cookie: mdviewer_session=<token>; HttpOnly; SameSite=Strict; Path=/[; Secure]
+Content-Type: application/json
+
+{"ok":true}
+```
+
+#### POST `/api/auth/logout`
+
+Invalidate current session token (if present) and clear auth cookie.
+
+Request body: none.
+
+Responses:
+
+- `200 OK`:
+
+```json
+{
+  "ok": true
+}
+```
+
+Notes:
+
+- Response includes cookie clearing header:
+  - `Set-Cookie: mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
+- Current implementation always returns `200` for this endpoint, even when no session is present.
+
+Example request/response:
+
+```http
+POST /api/auth/logout
+```
+
+```http
+HTTP/1.1 200 OK
+Set-Cookie: mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0
+Content-Type: application/json
+
+{"ok":true}
+```
+
+#### GET `/api/auth/check`
+
+Check whether the current request is authenticated.
+
+Responses:
+
+- `200 OK`:
+
+```json
+{
+  "authenticated": true
+}
+```
+
+- `401 Unauthorized`:
+
+```json
+{
+  "authenticated": false
+}
+```
+
+Notes:
+
+- When `AUTH_DISABLED=true`, this endpoint returns `200` with `{"authenticated": true}`.
+
+Example request/response:
+
+```http
+GET /api/auth/check
+```
+
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"authenticated":true}
+```
+
 ### Cookie and Session Spec
 
 Authentication uses an opaque session token stored in an HTTP cookie.

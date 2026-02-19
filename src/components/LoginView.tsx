@@ -18,13 +18,18 @@ export function LoginView({ error, isLoading, onLogin }: LoginViewProps) {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!username.trim() || !password) {
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername || !password) {
       setLocalError("Please enter username and password.");
       return;
     }
 
     setLocalError(null);
-    await onLogin(username.trim(), password);
+    const success = await onLogin(trimmedUsername, password);
+    if (success) {
+      setUsername("");
+      setPassword("");
+    }
   };
 
   return (

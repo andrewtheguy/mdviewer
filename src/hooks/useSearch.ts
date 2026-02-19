@@ -81,6 +81,9 @@ export function useSearch(
 
       if (response.status === 401) {
         setIsSearching(false);
+        setSearchResults([]);
+        setSearchTotalHits(0);
+        setSearchCurrentPage(1);
         onUnauthorized();
         return;
       }

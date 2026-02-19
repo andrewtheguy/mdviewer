@@ -159,6 +159,10 @@ export function extractSessionToken(req: Request): string | null {
 }
 
 export function isRequestAuthenticated(req: Request): boolean {
+  if (isAuthDisabled()) {
+    return true;
+  }
+
   const token = extractSessionToken(req);
   if (!token) {
     return false;
