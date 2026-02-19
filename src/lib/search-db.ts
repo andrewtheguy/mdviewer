@@ -24,7 +24,7 @@ export interface S3FileDocument {
   creationDateISO: string | null;
 }
 
-// Encode S3 key to safe ID (base64url)
+// Encode S3 key to safe ID (used by reindex flows for /api/app/search/reindex and /reindex)
 export function keyToId(key: string): string {
   return Buffer.from(key, "utf-8").toString("base64url");
 }
@@ -272,6 +272,7 @@ function validatePaginationParam(value: number | undefined, defaultValue: number
   return num;
 }
 
+// Search indexed documents (for GET /api/app/search)
 export function search(query: string, options: SearchOptions = {}): SearchResult {
   const startTime = performance.now();
   const database = getDatabase();
@@ -371,6 +372,7 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
   };
 }
 
+// Insert/update documents (used by reindex flows for POST /api/app/search/reindex and POST /reindex)
 export function addDocuments(docs: S3FileDocument[]): void {
   const database = getDatabase();
 
@@ -434,6 +436,7 @@ export interface IndexStats {
   isIndexing: boolean;
 }
 
+// Get index stats (for GET /api/app/search/stats)
 export function getStats(): IndexStats {
   const database = getDatabase();
   const stmt = database.prepare("SELECT COUNT(*) as count FROM documents");
@@ -576,7 +579,7 @@ export interface DocumentMetadata {
   creationDateISO: string | null;
 }
 
-// Get document metadata by key (for preview API)
+// Get document metadata by key (for /api/app/documents/preview)
 export function getDocumentMetadata(key: string): DocumentMetadata | null {
   const database = getDatabase();
   const stmt = database.prepare(`
@@ -606,7 +609,7 @@ function escapeLikePattern(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-// Browse a folder - returns subfolders and paginated files at the given path
+// Browse a folder (for /api/app/documents/browse)
 export function browseFolder(options: BrowseFolderOptions): BrowseFolderResult {
   const database = getDatabase();
   const { path } = options;
@@ -703,7 +706,7 @@ export interface CollectionsResult {
   total: number;
 }
 
-// Get all collections (with pagination and sorting)
+// Get collections with pagination/sorting (for /api/app/collections)
 export function getCollections(options: { limit?: number; offset?: number; sortBy?: SortField; sortOrder?: SortOrder } = {}): CollectionsResult {
   const database = getDatabase();
   const limit = validatePaginationParam(options.limit, 50, MAX_LIMIT);
@@ -754,7 +757,7 @@ export interface CollectionTitlesResult {
   total: number;
 }
 
-// Get titles grouped within a collection
+// Get titles in a collection (for /api/app/collections/:collection)
 export function getCollectionTitles(
   collection: string,
   options: { limit?: number; offset?: number; sortBy?: SortField; sortOrder?: SortOrder } = {}
@@ -801,10 +804,8 @@ export function getCollectionTitles(
   };
 }
 
-// Get documents in a collection (optionally filtered by title)
-// When title is null, filters for documents with NULL title
-// When title is a string, filters for exact title match
-// When title is undefined, no title filter is applied
+// Get collection documents (for /api/app/collections/:collection/documents/:title)
+// When title is null, filters for documents with NULL title; when undefined, no title filter is applied.
 export function getCollectionDocuments(
   collection: string,
   options: { limit?: number; offset?: number; title?: string | null; sortBy?: SortField; sortOrder?: SortOrder } = {}
@@ -866,6 +867,7 @@ export function getCollectionDocuments(
 }
 
 // Schema version functions
+// Read schema version (used by /api/app/* reindex guard and GET /sync/status)
 export function getSchemaVersion(): number | null {
   const database = getDatabase();
   const stmt = database.prepare("SELECT version FROM schema_version WHERE id = 1");
@@ -873,6 +875,7 @@ export function getSchemaVersion(): number | null {
   return result?.version ?? null;
 }
 
+// Set schema version (used by reindex flows for POST /api/app/search/reindex and POST /reindex)
 export function setSchemaVersion(version: number): void {
   const database = getDatabase();
   database.prepare(`
@@ -882,6 +885,7 @@ export function setSchemaVersion(version: number): void {
 }
 
 // Sync timestamp functions (using sync_status table)
+// Read last source timestamp (for GET /sync/status and sync flows)
 export function getLastSourceTimestamp(): number | null {
   const database = getDatabase();
   const stmt = database.prepare("SELECT last_source_timestamp FROM sync_status WHERE id = 1");
@@ -889,6 +893,7 @@ export function getLastSourceTimestamp(): number | null {
   return result?.last_source_timestamp ?? null;
 }
 
+// Set last source timestamp (used by POST /sync and reindex flows)
 export function setLastSourceTimestamp(timestamp: number): void {
   const database = getDatabase();
   database.prepare(`
@@ -898,6 +903,7 @@ export function setLastSourceTimestamp(timestamp: number): void {
   `).run(timestamp, Date.now());
 }
 
+// Read last synced-at timestamp (for GET /sync/status)
 export function getLastSyncedAt(): number | null {
   const database = getDatabase();
   const stmt = database.prepare("SELECT last_synced_at FROM sync_status WHERE id = 1");
@@ -928,6 +934,7 @@ const reindexStatus: ReindexStatus = {
   lastResult: null,
 };
 
+// Get reindex status (for GET /status and GET /api/app/search/reindex/status)
 export function getReindexStatus(): ReindexStatus {
   return structuredClone(reindexStatus);
 }
@@ -935,14 +942,17 @@ export function getReindexStatus(): ReindexStatus {
 // Sync operation state
 let syncOperationRunning = false;
 
+// Check whether sync/reindex is currently running (for POST /sync and sync guards)
 export function isSyncOperationRunning(): boolean {
   return syncOperationRunning || reindexStatus.running;
 }
 
+// Set sync operation running flag (used by POST /sync and periodic sync loop)
 export function setSyncOperationRunning(value: boolean): void {
   syncOperationRunning = value;
 }
 
+// Check whether sync is currently running (for GET /status)
 export function isSyncRunning(): boolean {
   return syncOperationRunning;
 }
@@ -951,6 +961,7 @@ export function isSyncRunning(): boolean {
 let schemaVersionMismatchLogged = false;
 
 // Check if full reindex is needed (schema mismatch or sync flag set)
+// Check reindex-required state (for /api/app/* guard and GET /sync/status)
 export function checkNeedsFullReindex(): boolean {
   const dbVersion = getSchemaVersion();
   if (dbVersion !== SCHEMA_VERSION) {
@@ -965,6 +976,7 @@ export function checkNeedsFullReindex(): boolean {
   return getSyncNeedsFullReindex();
 }
 
+// Read persisted reindex-required flag (used by checkNeedsFullReindex and sync flow)
 export function getSyncNeedsFullReindex(): boolean {
   const database = getDatabase();
   const stmt = database.prepare("SELECT needs_full_reindex FROM sync_status WHERE id = 1");
@@ -974,6 +986,7 @@ export function getSyncNeedsFullReindex(): boolean {
   return result.needs_full_reindex === 1;
 }
 
+// Set persisted reindex-required flag (used by POST /sync and reindex flows)
 export function setSyncNeedsFullReindex(value: boolean): void {
   const database = getDatabase();
   database.prepare(`
@@ -1556,7 +1569,7 @@ export async function runReindex(): Promise<void> {
   }
 }
 
-// Start a reindex job (returns immediately, runs in background)
+// Start a reindex job (for POST /reindex and proxied POST /api/app/search/reindex)
 export function startReindex(): { success: boolean; message: string } {
   if (reindexStatus.running || syncOperationRunning) {
     console.log("[Reindex] Blocked: reindex or sync already in progress");

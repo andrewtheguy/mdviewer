@@ -70,6 +70,8 @@ export function useRecent(
       );
 
       if (response.status === 401) {
+        setRecentFiles([]);
+        setRecentTotalFiles(0);
         onUnauthorized();
         return;
       }
