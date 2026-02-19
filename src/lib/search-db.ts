@@ -455,7 +455,7 @@ export interface ListDocumentsResult {
   total: number;
 }
 
-// List all documents with pagination (for /api/documents/list)
+// List all documents with pagination (for /api/app/documents/list)
 export function listDocuments(options: ListDocumentsOptions = {}): ListDocumentsResult {
   const database = getDatabase();
 
@@ -496,7 +496,7 @@ export interface RecentDocument {
   creationDateISO: string | null;
 }
 
-// Get recent documents with pagination/filtering (for /api/documents/recent)
+// Get recent documents with pagination/filtering (for /api/app/documents/recent)
 export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   files: RecentDocument[];
   totalFiles: number;
@@ -556,7 +556,7 @@ export interface DocumentRecord {
   size: number;
 }
 
-// Get single document by key (for /api/documents/download and /api/documents/preview)
+// Get single document by key (for /api/app/documents/download and /api/app/documents/preview)
 export function getDocument(key: string): DocumentRecord | null {
   const database = getDatabase();
   const stmt = database.prepare(`

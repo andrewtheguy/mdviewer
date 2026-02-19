@@ -100,7 +100,7 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
     setIsReindexing(true);
     wasReindexingRef.current = true;
     try {
-      const response = await fetch("/api/search/reindex", { method: "POST" });
+      const response = await fetch("/api/app/search/reindex", { method: "POST" });
       if (response.status === 401) {
         setIsReindexing(false);
         wasReindexingRef.current = false;
@@ -128,7 +128,7 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
     setIsSyncing(true);
     wasSyncingRef.current = true;
     try {
-      const response = await fetch("/api/search/sync", { method: "POST" });
+      const response = await fetch("/api/app/search/sync", { method: "POST" });
       if (response.status === 401) {
         setIsSyncing(false);
         wasSyncingRef.current = false;
@@ -152,7 +152,7 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
 
   const handleDownload = useCallback(async (key: string) => {
     try {
-      const response = await fetch(`/api/documents/download?key=${encodeKey(key)}`);
+      const response = await fetch(`/api/app/documents/download?key=${encodeKey(key)}`);
       if (response.status === 401) {
         onUnauthorized();
         return;
@@ -313,7 +313,7 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const response = await fetch("/api/search/reindex/status");
+        const response = await fetch("/api/app/search/reindex/status");
         if (response.status === 401) {
           setIsReindexing(false);
           setIsSyncing(false);

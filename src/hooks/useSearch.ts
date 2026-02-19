@@ -75,7 +75,7 @@ export function useSearch(
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`,
+        `/api/app/search?q=${encodeURIComponent(query)}&limit=${PAGE_SIZE}&offset=${offset}`,
         { signal: controller.signal }
       );
 

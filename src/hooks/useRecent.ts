@@ -65,7 +65,7 @@ export function useRecent(
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const response = await fetch(
-        `/api/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`,
+        `/api/app/documents/recent?limit=${PAGE_SIZE}&offset=${offset}&type=${typeFilter}`,
         { signal: controller.signal }
       );
 

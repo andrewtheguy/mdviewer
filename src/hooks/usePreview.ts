@@ -33,7 +33,7 @@ export function usePreview(onUnauthorized: () => void): UsePreviewReturn {
     setPreviewMetadata(null);
     setPreviewError(null);
     try {
-      const response = await fetch(`/api/documents/preview?key=${encodeKey(key)}`, { signal });
+      const response = await fetch(`/api/app/documents/preview?key=${encodeKey(key)}`, { signal });
       if (response.status === 401) {
         onUnauthorized();
         return;

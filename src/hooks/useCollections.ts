@@ -139,7 +139,7 @@ export function useCollections(
       const offset = (page - 1) * PAGE_SIZE;
       const currentSort = sort ?? collectionSort;
       const response = await fetch(
-        `/api/collections?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        `/api/app/collections?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
       if (response.status === 401) {
@@ -192,7 +192,7 @@ export function useCollections(
       const offset = (page - 1) * PAGE_SIZE;
       const currentSort = sort ?? titleSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        `/api/app/collections/${encodeURIComponent(collection)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
       if (response.status === 401) {
@@ -245,7 +245,7 @@ export function useCollections(
       const offset = (page - 1) * PAGE_SIZE;
       const currentSort = sort ?? documentSort;
       const response = await fetch(
-        `/api/collections/${encodeURIComponent(collection)}/documents/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
+        `/api/app/collections/${encodeURIComponent(collection)}/documents/${encodeURIComponent(title)}?limit=${PAGE_SIZE}&offset=${offset}&sortBy=${currentSort.sortBy}&sortOrder=${currentSort.sortOrder}`,
         { signal: abortController.signal }
       );
       if (response.status === 401) {

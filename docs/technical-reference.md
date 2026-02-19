@@ -78,7 +78,7 @@ The reindex process rebuilds the search index from S3 storage. It runs asynchron
 
 ### Triggering a Reindex
 
-1. **Via API:** `POST /api/search/reindex` on the main server (port 3000)
+1. **Via API:** `POST /api/app/search/reindex` on the main server (port 3000)
 2. **Direct:** `POST /reindex` on the job runner (port 3001)
 
 ### Reindex Steps
@@ -119,7 +119,7 @@ The reindex process rebuilds the search index from S3 storage. It runs asynchron
 
 ### Status Tracking
 
-The reindex status can be checked via `GET /api/search/reindex/status`:
+The reindex status can be checked via `GET /api/app/search/reindex/status`:
 
 ```json
 {
@@ -291,10 +291,10 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/documents/list` | List all documents (from database) |
-| GET | `/api/documents/recent` | List recent `.txt` and `.md` files |
-| GET | `/api/documents/download?key=<encoded>` | Download a file |
-| GET | `/api/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
+| GET | `/api/app/documents/list` | List all documents (from database) |
+| GET | `/api/app/documents/recent` | List recent `.txt` and `.md` files |
+| GET | `/api/app/documents/download?key=<encoded>` | Download a file |
+| GET | `/api/app/documents/preview?key=<encoded>` | Preview `.txt` or `.md` file content |
 
 ### Authentication Operations
 
@@ -308,10 +308,10 @@ Each folder in S3 can contain a `metadata.json` file that provides metadata for 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/search?q=<query>` | Search indexed files |
-| POST | `/api/search/reindex` | Trigger full reindex |
-| GET | `/api/search/reindex/status` | Check reindex status |
-| GET | `/api/search/stats` | Get index statistics |
+| GET | `/api/app/search?q=<query>` | Search indexed files |
+| POST | `/api/app/search/reindex` | Trigger full reindex |
+| GET | `/api/app/search/reindex/status` | Check reindex status |
+| GET | `/api/app/search/stats` | Get index statistics |
 
 ### Sync Operations (Job Runner - port 3001)
 

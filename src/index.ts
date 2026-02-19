@@ -213,22 +213,21 @@ app.get("/api/auth/check", (req, res) => {
   res.status(401).json({ authenticated: false });
 });
 
-app.use("/api", (req, res, next) => {
-  const isAuthRoute = req.path.startsWith("/auth/");
-  if (isAuthRoute || isAuthDisabled() || isRequestAuthenticated(req)) {
+const appApi = express.Router();
+
+appApi.use((req, res, next) => {
+  if (isAuthDisabled() || isRequestAuthenticated(req)) {
     next();
     return;
   }
   res.status(401).json({ error: "Unauthorized" });
 });
 
-// Middleware to block API routes when reindex is required
-// Allows reindex endpoints through so users can trigger the reindex
-app.use("/api", (req, res, next) => {
-  // Allow exact /search/reindex or subpaths like /search/reindex/status
+// Middleware to block app API routes when reindex is required.
+// Allow reindex endpoints through so users can trigger the reindex.
+appApi.use((req, res, next) => {
   const isReindexRoute = req.path === "/search/reindex" || req.path.startsWith("/search/reindex/");
-  const isAuthRoute = req.path.startsWith("/auth/");
-  if (checkNeedsFullReindex() && !isReindexRoute && !isAuthRoute) {
+  if (checkNeedsFullReindex() && !isReindexRoute) {
     res.status(503).json({
       error: "Reindex required",
       needsReindex: true,
@@ -239,21 +238,21 @@ app.use("/api", (req, res, next) => {
 });
 
 // Document API Routes (served from database)
-app.get("/api/documents/list", (req, res) => {
+appApi.get("/documents/list", (req, res) => {
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 100 });
   const result = listDocuments({ limit, offset });
   res.json({ objects: result.objects, total: result.total });
 });
 
 // Browse folder endpoint - returns folders and paginated files at a path
-app.get("/api/documents/browse", (req, res) => {
+appApi.get("/documents/browse", (req, res) => {
   const requestPath = (req.query.path as string) || "";
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
   const result = browseFolder({ path: requestPath, limit, offset });
   res.json(result);
 });
 
-app.get("/api/documents/download", (req, res) => {
+appApi.get("/documents/download", (req, res) => {
   const encodedKey = req.query.key as string | undefined;
   if (!encodedKey) {
     throw new HttpError(400, "Missing key parameter");
@@ -287,7 +286,7 @@ app.get("/api/documents/download", (req, res) => {
   res.send(doc.content);
 });
 
-app.get("/api/documents/preview", (req, res) => {
+appApi.get("/documents/preview", (req, res) => {
   const encodedKey = req.query.key as string | undefined;
   if (!encodedKey) {
     throw new HttpError(400, "Missing key parameter");
@@ -326,7 +325,7 @@ app.get("/api/documents/preview", (req, res) => {
 });
 
 // Recent files endpoint - returns recently updated .txt and .md files from database
-app.get("/api/documents/recent", (req, res) => {
+appApi.get("/documents/recent", (req, res) => {
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
 
   // Validate typeFilter against allowed values
@@ -349,7 +348,7 @@ app.get("/api/documents/recent", (req, res) => {
 });
 
 // Search API Routes
-app.get("/api/search", (req, res) => {
+appApi.get("/search", (req, res) => {
   const query = (req.query.q as string) || "";
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string }, { defaultLimit: 20 });
 
@@ -368,39 +367,39 @@ app.get("/api/search", (req, res) => {
   });
 });
 
-app.post("/api/search/reindex", async (_req, res) => {
+appApi.post("/search/reindex", async (_req, res) => {
   const data = await fetchOrThrow(`${JOB_RUNNER_URL}/reindex`, {
     method: "POST",
   });
   res.json(data);
 });
 
-app.get("/api/search/reindex/status", async (_req, res) => {
+appApi.get("/search/reindex/status", async (_req, res) => {
   const data = await fetchOrThrow<{ running: boolean; syncing: boolean }>(`${JOB_RUNNER_URL}/status`);
   res.json(data);
 });
 
-app.post("/api/search/sync", async (_req, res) => {
+appApi.post("/search/sync", async (_req, res) => {
   const data = await fetchOrThrow(`${JOB_RUNNER_URL}/sync`, {
     method: "POST",
   });
   res.json(data);
 });
 
-app.get("/api/search/stats", (_req, res) => {
+appApi.get("/search/stats", (_req, res) => {
   const stats = getStats();
   res.json(stats);
 });
 
 // Collections API Routes
-app.get("/api/collections", (req, res) => {
+appApi.get("/collections", (req, res) => {
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
   const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
   const result = getCollections({ limit, offset, sortBy, sortOrder });
   res.json(result);
 });
 
-app.get("/api/collections/:collection", (req, res) => {
+appApi.get("/collections/:collection", (req, res) => {
   const { collection } = req.params;
   const { limit, offset } = parsePagination(req.query as { limit?: string; offset?: string });
   const { sortBy, sortOrder } = parseSortParams(req.query as { sortBy?: string; sortOrder?: string });
@@ -409,7 +408,7 @@ app.get("/api/collections/:collection", (req, res) => {
   res.json(result);
 });
 
-app.get("/api/collections/:collection/documents/:title", (req, res) => {
+appApi.get("/collections/:collection/documents/:title", (req, res) => {
   const { collection, title: titleParam } = req.params;
   // Translate placeholder to null for querying documents with NULL title
   const title = titleParam === "__NO_TITLE_e4f7b2c9__" ? null : titleParam;
@@ -419,6 +418,8 @@ app.get("/api/collections/:collection/documents/:title", (req, res) => {
   const result = getCollectionDocuments(collection, { limit, offset, title, sortBy, sortOrder });
   res.json(result);
 });
+
+app.use("/api/app", appApi);
 
 // Serve static files in production
 if (isProduction) {
