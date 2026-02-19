@@ -49,6 +49,7 @@ export function LoginView({ error, isLoading, onLogin }: LoginViewProps) {
                 autoComplete="username"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
+                required
                 disabled={isLoading}
               />
             </div>
@@ -60,12 +61,15 @@ export function LoginView({ error, isLoading, onLogin }: LoginViewProps) {
                 autoComplete="current-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
+                required
                 disabled={isLoading}
               />
             </div>
 
             {(localError || error) && (
-              <p className="text-sm text-red-600 dark:text-red-400">{localError || error}</p>
+              <p className="text-sm text-red-600 dark:text-red-400" role="alert" aria-live="assertive">
+                {localError || error}
+              </p>
             )}
 
             <Button type="submit" className="w-full" disabled={isLoading}>

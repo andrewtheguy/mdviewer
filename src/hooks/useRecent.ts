@@ -47,6 +47,13 @@ export function useRecent(
   const [recentCurrentPage, setRecentCurrentPage] = useState(1);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const onErrorRef = useRef(onError);
+  const onUnauthorizedRef = useRef(onUnauthorized);
+
+  useEffect(() => {
+    onErrorRef.current = onError;
+    onUnauthorizedRef.current = onUnauthorized;
+  }, [onError, onUnauthorized]);
 
   // Cleanup: abort any in-flight request on unmount
   useEffect(() => {
@@ -72,7 +79,7 @@ export function useRecent(
       if (response.status === 401) {
         setRecentFiles([]);
         setRecentTotalFiles(0);
-        onUnauthorized();
+        onUnauthorizedRef.current();
         return;
       }
 
@@ -94,7 +101,7 @@ export function useRecent(
         } catch {
           // Ignore body reading errors
         }
-        onError(errorMessage);
+        onErrorRef.current(errorMessage);
         setRecentFiles([]);
         setRecentTotalFiles(0);
         return;
@@ -102,7 +109,7 @@ export function useRecent(
 
       const data = await response.json();
       if (data.error) {
-        onError(data.error);
+        onErrorRef.current(data.error);
         setRecentFiles([]);
         setRecentTotalFiles(0);
       } else {
@@ -115,7 +122,7 @@ export function useRecent(
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      onError(err instanceof Error ? err.message : "Failed to load recent files");
+      onErrorRef.current(err instanceof Error ? err.message : "Failed to load recent files");
       setRecentFiles([]);
       setRecentTotalFiles(0);
       setRecentCurrentPage(1);
@@ -125,7 +132,7 @@ export function useRecent(
         setIsLoadingRecent(false);
       }
     }
-  }, [onError, onUnauthorized]);
+  }, []);
 
   const handleRecentPageChange = useCallback((page: number) => {
     const url = new URL(window.location.href);
