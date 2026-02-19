@@ -35,6 +35,7 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
   // Reindex and sync state
   const [isReindexing, setIsReindexing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Use custom hooks for state management
   const preview = usePreview(onUnauthorized);
@@ -188,9 +189,21 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
     }
   }, [onUnauthorized]);
 
-  const handleLogout = useCallback(() => {
-    void onLogout();
-  }, [onLogout]);
+  const handleLogout = useCallback(async () => {
+    if (isLoggingOut) {
+      return;
+    }
+
+    setIsLoggingOut(true);
+    try {
+      await onLogout();
+    } catch (err) {
+      console.error("[DocumentViewer] Logout failed:", err);
+      setError(err instanceof Error ? err.message : "Failed to log out");
+    } finally {
+      setIsLoggingOut(false);
+    }
+  }, [isLoggingOut, onLogout]);
 
   // Coordinated handlers that manage multiple hooks and close preview
   const handleShowCollections = useCallback(() => {
@@ -503,10 +516,10 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
               variant="ghost"
               size="sm"
               className="gap-2"
-              disabled={isSyncing || isReindexing}
+              disabled={isSyncing || isReindexing || isLoggingOut}
             >
-              <LogOut className="size-4" />
-              <span>Logout</span>
+              {isLoggingOut ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+              <span>{isLoggingOut ? "Logging out..." : "Logout"}</span>
             </Button>
           </div>
         </div>
