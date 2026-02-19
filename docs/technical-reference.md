@@ -399,7 +399,7 @@ Notes:
 
 - Response includes cookie clearing header:
   - `Set-Cookie: mdviewer_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`
-- Current implementation always returns `200` for this endpoint, even when no session is present.
+- This endpoint returns `200` even when no session is present, as part of the API contract.
 
 Example request/response:
 
@@ -496,7 +496,7 @@ Authentication uses an opaque session token stored in an HTTP cookie.
 }
 ```
 
-- Job-runner endpoints on port `3001` (for example `/reindex`, `/status`, `/sync`, `/sync/status`) are intended for internal-only service-to-service access and should not be exposed publicly.
+- Job-runner endpoints on port `3001` (for example `/reindex`, `/status`, `/sync`, `/sync/status`, etc.) are intended for internal-only service-to-service access and should not be exposed publicly.
 
 #### Login Rate Limiting
 
