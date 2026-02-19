@@ -35,6 +35,15 @@ export function useAuth(): UseAuthReturn {
   const [error, setError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
+  const forceResetToRoot = useCallback((): boolean => {
+    const { pathname, search, hash } = window.location;
+    if (pathname !== "/" || search !== "" || hash !== "") {
+      window.location.replace("/");
+      return true;
+    }
+    return false;
+  }, []);
+
   const checkAuth = useCallback(async () => {
     setStatus("checking");
     setError(null);
@@ -47,6 +56,9 @@ export function useAuth(): UseAuthReturn {
       }
 
       if (response.status === 401) {
+        if (forceResetToRoot()) {
+          return;
+        }
         setStatus("unauthenticated");
         return;
       }
@@ -58,7 +70,7 @@ export function useAuth(): UseAuthReturn {
       setStatus("unauthenticated");
       setError(err instanceof Error ? err.message : "Failed to check authentication status");
     }
-  }, []);
+  }, [forceResetToRoot]);
 
   useEffect(() => {
     void checkAuth();
@@ -96,18 +108,22 @@ export function useAuth(): UseAuthReturn {
   }, []);
 
   const logout = useCallback(async (): Promise<void> => {
-    try {
-      await fetch("/api/auth/logout", { method: "POST" });
-    } finally {
-      setError(null);
-      setStatus("unauthenticated");
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    // Keep the redirect/state reset behavior even if logout request fails.
+    if (forceResetToRoot()) {
+      return;
     }
-  }, []);
-
-  const markUnauthorized = useCallback(() => {
     setError(null);
     setStatus("unauthenticated");
-  }, []);
+  }, [forceResetToRoot]);
+
+  const markUnauthorized = useCallback(() => {
+    if (forceResetToRoot()) {
+      return;
+    }
+    setError(null);
+    setStatus("unauthenticated");
+  }, [forceResetToRoot]);
 
   return {
     status,
