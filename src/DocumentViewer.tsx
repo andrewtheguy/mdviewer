@@ -6,7 +6,14 @@ import { SearchBar } from "@/components/SearchBar";
 import { SearchResults } from "@/components/SearchResults";
 import { RecentFiles } from "@/components/RecentFiles";
 import { CollectionsView } from "@/components/CollectionsView";
-import { Loader2, Clock, RotateCw, Library, ChevronLeft, RefreshCw, LogOut } from "lucide-react";
+import { Loader2, Clock, RotateCw, Library, ChevronLeft, RefreshCw, LogOut, EllipsisVertical } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   usePreview,
   useSearch,
@@ -490,7 +497,8 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
             <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
             <CardDescription>Browse and view markdown or text files</CardDescription>
           </div>
-          <div className="flex gap-2">
+          {/* Desktop: full button row */}
+          <div className="hidden sm:flex gap-2 shrink-0">
             <Button
               onClick={handleSync}
               variant="default"
@@ -521,6 +529,44 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
               {isLoggingOut ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
               <span>{isLoggingOut ? "Logging out..." : "Logout"}</span>
             </Button>
+          </div>
+          {/* Mobile: dropdown menu */}
+          <div className="sm:hidden shrink-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="size-8 p-0">
+                  <EllipsisVertical className="size-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[160px]">
+                <DropdownMenuItem
+                  onClick={handleSync}
+                  disabled={isSyncing || isReindexing}
+                  className="py-2.5 text-blue-600 dark:text-blue-400 [&_svg]:!text-blue-600 dark:[&_svg]:!text-blue-400"
+                >
+                  <RefreshCw className="size-4" />
+                  Sync
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={handleReindex}
+                  disabled={isSyncing || isReindexing}
+                  className="py-2.5"
+                >
+                  <RotateCw className="size-4 text-foreground" />
+                  Full Reindex
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  disabled={isSyncing || isReindexing || isLoggingOut}
+                  variant="destructive"
+                  className="py-2.5"
+                >
+                  {isLoggingOut ? <Loader2 className="size-4 animate-spin" /> : <LogOut className="size-4" />}
+                  {isLoggingOut ? "Logging out..." : "Logout"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </CardHeader>
