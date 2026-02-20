@@ -29,6 +29,7 @@
     "express": "^5.2.1",
     "lucide-react": "^0.545.0",
     "multer": "^2.0.2",
+    "radix-ui": "^1.4.3",
     "react": "^19",
     "react-dom": "^19",
     "react-markdown": "^10.1.0",
