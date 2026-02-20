@@ -71,8 +71,8 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.meta.outputs.tag }}-${{ matrix.arch }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.arch }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=buildkit-${{ matrix.arch }}
+          cache-to: type=gha,scope=buildkit-${{ matrix.arch }},mode=max
 
   manifest:
     needs: [meta, build]
