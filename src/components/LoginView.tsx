@@ -34,6 +34,7 @@ export function LoginView({ error, isLoading, onLogin }: LoginViewProps) {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 md:p-8">
+      <h1 className="mb-6 text-center text-3xl font-bold">Markdown Viewer</h1>
       <Card className="mx-auto w-full max-w-md">
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
