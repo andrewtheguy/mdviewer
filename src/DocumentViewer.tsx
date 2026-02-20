@@ -490,8 +490,8 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
   }
 
   return (
-    <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm">
-      <CardHeader className="px-4 pb-4 sm:px-6">
+    <Card className="w-full border-0 sm:border shadow-none sm:shadow-sm gap-2 sm:gap-6 py-3 sm:py-6">
+      <CardHeader className="px-4 pb-0 sm:pb-4 sm:px-6">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <CardTitle className="text-xl sm:text-2xl">Markdown Viewer</CardTitle>
