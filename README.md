@@ -3,6 +3,9 @@
 A web-based markdown viewer from S3 storage and full-text search powered by SQLite FTS5. Built with Node.js, React, and Tailwind CSS.
 
 > [!IMPORTANT]
+> This is a personal work-in-progress project.
+> Backward compatibility is not guaranteed between versions.
+>
 > This application is designed for self-hosted S3-compatible storage like [Garage](https://garagehq.deuxfleurs.fr/) or [Ceph](https://ceph.io/). It makes frequent API calls to list and fetch files, which may incur significant costs on commercial cloud providers like AWS S3.
 
 ## Features
