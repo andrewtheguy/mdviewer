@@ -522,14 +522,14 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   const countResult = countStmt.get(...filterParams) as { count: number };
   const totalFiles = countResult.count;
 
-  // Get paginated results sorted by creation date (most recent first)
+  // Get paginated results sorted by most recent activity (whichever is newer: last modified or creation date)
   const stmt = database.prepare(`
     SELECT key, name, size,
            last_modified as lastModified, last_modified_iso as lastModifiedISO,
            collection, title, creation_date as creationDate, creation_date_iso as creationDateISO
     FROM documents
     ${whereClause}
-    ORDER BY creation_date DESC
+    ORDER BY MAX(COALESCE(last_modified, 0), COALESCE(creation_date, 0)) DESC
     LIMIT ? OFFSET ?
   `);
 
