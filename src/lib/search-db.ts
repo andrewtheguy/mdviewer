@@ -107,8 +107,10 @@ const TRIGGER_DEFINITIONS = `
 const INDEX_DEFINITIONS = `
   CREATE INDEX IF NOT EXISTS idx_documents_key ON documents(key);
   CREATE INDEX IF NOT EXISTS idx_documents_creation_date ON documents(creation_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_documents_last_modified ON documents(last_modified DESC);
   CREATE INDEX IF NOT EXISTS idx_documents_collection_creation_date ON documents(collection, creation_date DESC);
   CREATE INDEX IF NOT EXISTS idx_documents_extension_creation_date ON documents(extension, creation_date DESC);
+  CREATE INDEX IF NOT EXISTS idx_documents_extension_last_modified ON documents(extension, last_modified DESC);
 `;
 
 // Combined schema DDL (used by both initializeSchema and clearDocuments)
@@ -522,14 +524,15 @@ export function getRecentDocuments(options: RecentDocumentsOptions = {}): {
   const countResult = countStmt.get(...filterParams) as { count: number };
   const totalFiles = countResult.count;
 
-  // Get paginated results sorted by most recent activity (whichever is newer: last modified or creation date)
+  // Get paginated results sorted by last modified (most recent first)
+  // last_modified is guaranteed >= creation_date at insert time
   const stmt = database.prepare(`
     SELECT key, name, size,
            last_modified as lastModified, last_modified_iso as lastModifiedISO,
            collection, title, creation_date as creationDate, creation_date_iso as creationDateISO
     FROM documents
     ${whereClause}
-    ORDER BY MAX(COALESCE(last_modified, 0), COALESCE(creation_date, 0)) DESC
+    ORDER BY last_modified DESC
     LIMIT ? OFFSET ?
   `);
 
@@ -1316,14 +1319,18 @@ export async function reindexPaths(storagePrefixes: string[]): Promise<{ indexed
             creationDateISO = lastModified.toISOString();
           }
 
+          // Ensure lastModified is always >= creationDate so ORDER BY last_modified
+          // reflects most recent activity and can use an index
+          const effectiveLastModified = creationDate > lastModified ? creationDate : lastModified;
+
           pendingDocuments.push({
             id: keyToId(key),
             key,
             name: getBasename(key),
             extension: getExtension(key),
             size: obj.size ?? 0,
-            lastModified: lastModified.getTime(),
-            lastModifiedISO: lastModified.toISOString(),
+            lastModified: effectiveLastModified.getTime(),
+            lastModifiedISO: effectiveLastModified.toISOString(),
             content,
             contentPreview,
             collection: metadata.collection,
@@ -1479,14 +1486,18 @@ export async function runReindex(): Promise<void> {
           creationDateISO = lastModified.toISOString();
         }
 
+        // Ensure lastModified is always >= creationDate so ORDER BY last_modified
+        // reflects most recent activity and can use an index
+        const effectiveLastModified = creationDate > lastModified ? creationDate : lastModified;
+
         pendingDocuments.push({
           id: keyToId(key),
           key,
           name: getBasename(key),
           extension: getExtension(key),
           size: obj.size ?? 0,
-          lastModified: lastModified.getTime(),
-          lastModifiedISO: lastModified.toISOString(),
+          lastModified: effectiveLastModified.getTime(),
+          lastModifiedISO: effectiveLastModified.toISOString(),
           content,
           contentPreview,
           collection: metadata.collection,
