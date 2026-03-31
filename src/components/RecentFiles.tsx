@@ -24,6 +24,8 @@ interface RecentFilesProps {
   onTypeFilterChange: (filter: FileTypeFilter) => void;
   onPreview: (key: string) => void;
   onDownload: (key: string) => void;
+  onNavigateToCollection?: (collection: string) => void;
+  onNavigateToTitle?: (collection: string, title: string) => void;
   currentPage: number;
   pageSize: number;
   onPageChange: (page: number) => void;
@@ -63,6 +65,8 @@ export function RecentFiles({
   onTypeFilterChange,
   onPreview,
   onDownload,
+  onNavigateToCollection,
+  onNavigateToTitle,
   currentPage,
   pageSize,
   onPageChange,
@@ -138,14 +142,38 @@ export function RecentFiles({
                         </span>
                       </div>
                       {file.title && (
-                        <span className="text-xs text-muted-foreground break-all">
-                          {file.title}
-                        </span>
+                        onNavigateToTitle && file.collection ? (
+                          <button
+                            className="text-xs text-muted-foreground break-all hover:text-primary hover:underline text-left w-fit"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToTitle(file.collection!, file.title!);
+                            }}
+                          >
+                            {file.title}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground break-all">
+                            {file.title}
+                          </span>
+                        )
                       )}
                       {file.collection && (
-                        <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
-                          {file.collection}
-                        </span>
+                        onNavigateToCollection ? (
+                          <button
+                            className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 hover:underline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToCollection(file.collection!);
+                            }}
+                          >
+                            {file.collection}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center w-fit px-2 py-0.5 rounded-full text-xs bg-primary/10 text-primary">
+                            {file.collection}
+                          </span>
+                        )
                       )}
                     </div>
                   </td>
