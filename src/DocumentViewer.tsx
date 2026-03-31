@@ -648,16 +648,16 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
                     </button>
                   )}
                   {preview.previewMetadata?.title && (
-                    <button
-                      className="text-sm font-medium truncate hover:text-primary hover:underline text-left w-fit max-w-full"
-                      onClick={() => {
-                        if (preview.previewMetadata?.collection) {
-                          handleNavigateToTitle(preview.previewMetadata.collection, preview.previewMetadata.title!);
-                        }
-                      }}
-                    >
-                      {preview.previewMetadata.title}
-                    </button>
+                    preview.previewMetadata.collection ? (
+                      <button
+                        className="text-sm font-medium truncate hover:text-primary hover:underline text-left w-fit max-w-full"
+                        onClick={() => handleNavigateToTitle(preview.previewMetadata!.collection!, preview.previewMetadata!.title!)}
+                      >
+                        {preview.previewMetadata.title}
+                      </button>
+                    ) : (
+                      <span className="text-sm font-medium truncate">{preview.previewMetadata.title}</span>
+                    )
                   )}
                   <span className="text-xs text-muted-foreground truncate">{getFileName(preview.previewFile)}</span>
                   {preview.previewMetadata?.creationDateISO && (
