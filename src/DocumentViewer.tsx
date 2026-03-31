@@ -287,6 +287,24 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
     collections.handleCollectionsListPageChange(page);
   }, [preview, collections]);
 
+  // Navigate from preview to collection/title in collections view
+  const handleNavigateToCollection = useCallback((collection: string) => {
+    preview.closePreview();
+    recent.setIsRecentMode(false);
+    search.clearSearchState();
+    collections.handleSelectCollection(collection);
+  }, [preview, recent, search, collections]);
+
+  const handleNavigateToTitle = useCallback((collection: string, title: string) => {
+    preview.closePreview();
+    recent.setIsRecentMode(false);
+    search.clearSearchState();
+    window.history.pushState({}, "", `/collections/${encodeURIComponent(collection)}/${encodeURIComponent(title)}`);
+    collections.setSelectedCollection(collection);
+    collections.setSelectedTitle(title);
+    collections.loadCollectionDocuments(collection, title, 1);
+  }, [preview, recent, search, collections]);
+
   // Shared function to restore state from current URL
   // Used by popstate handler to sync state with browser navigation
   // Uses refs to avoid recreating callback on every hook state change
@@ -622,10 +640,24 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
                 <div className="h-4 w-px bg-border shrink-0" />
                 <div className="flex flex-col flex-1 min-w-0">
                   {preview.previewMetadata?.collection && (
-                    <span className="text-xs text-muted-foreground">{preview.previewMetadata.collection}</span>
+                    <button
+                      className="text-xs text-muted-foreground hover:text-primary hover:underline text-left w-fit"
+                      onClick={() => handleNavigateToCollection(preview.previewMetadata!.collection!)}
+                    >
+                      {preview.previewMetadata.collection}
+                    </button>
                   )}
                   {preview.previewMetadata?.title && (
-                    <h2 className="text-sm font-medium truncate">{preview.previewMetadata.title}</h2>
+                    <button
+                      className="text-sm font-medium truncate hover:text-primary hover:underline text-left w-fit max-w-full"
+                      onClick={() => {
+                        if (preview.previewMetadata?.collection) {
+                          handleNavigateToTitle(preview.previewMetadata.collection, preview.previewMetadata.title!);
+                        }
+                      }}
+                    >
+                      {preview.previewMetadata.title}
+                    </button>
                   )}
                   <span className="text-xs text-muted-foreground truncate">{getFileName(preview.previewFile)}</span>
                   {preview.previewMetadata?.creationDateISO && (
@@ -674,6 +706,8 @@ export function DocumentViewer({ onLogout, onUnauthorized }: DocumentViewerProps
               onTypeFilterChange={handleRecentTypeFilterChange}
               onPreview={preview.handlePreview}
               onDownload={handleDownload}
+              onNavigateToCollection={handleNavigateToCollection}
+              onNavigateToTitle={handleNavigateToTitle}
               currentPage={recent.recentCurrentPage}
               pageSize={PAGE_SIZE}
               onPageChange={handleRecentPageChange}
