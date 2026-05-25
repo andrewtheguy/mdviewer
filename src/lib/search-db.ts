@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import escapeHtml from "escape-html";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
@@ -598,14 +599,6 @@ export interface BrowseFolderResult {
 // Escape LIKE wildcards for literal matching
 function escapeLikePattern(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 function highlightMatches(text: string, query: string): string {
