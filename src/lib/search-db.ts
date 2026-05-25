@@ -2,10 +2,11 @@ import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import escapeHtml from "escape-html";
 import { s3 } from "./s3";
 
 // Schema version - increment when schema or indexes change
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 // Re-export the document interface for compatibility
 export interface S3FileDocument {
@@ -52,13 +53,13 @@ const DOCUMENTS_TABLE_DEFINITION = `
   );
 `;
 
-// Shared FTS5 table definition
+// Shared FTS5 table definition (trigram tokenizer for CJK substring matching)
 const FTS_TABLE_DEFINITION = `
   CREATE VIRTUAL TABLE IF NOT EXISTS documents_fts USING fts5(
-    name, content, collection, title,
+    content,
     content='documents',
     content_rowid='rowid',
-    tokenize='porter unicode61'
+    tokenize='trigram'
   );
 `;
 
@@ -86,20 +87,20 @@ const SYNC_STATUS_TABLE = `
 // Shared trigger definitions to keep FTS in sync with main table
 const TRIGGER_DEFINITIONS = `
   CREATE TRIGGER IF NOT EXISTS documents_ai AFTER INSERT ON documents BEGIN
-    INSERT INTO documents_fts(rowid, name, content, collection, title)
-    VALUES (new.rowid, new.name, new.content, new.collection, new.title);
+    INSERT INTO documents_fts(rowid, content)
+    VALUES (new.rowid, new.content);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_ad AFTER DELETE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, collection, title)
-    VALUES ('delete', old.rowid, old.name, old.content, old.collection, old.title);
+    INSERT INTO documents_fts(documents_fts, rowid, content)
+    VALUES ('delete', old.rowid, old.content);
   END;
 
   CREATE TRIGGER IF NOT EXISTS documents_au AFTER UPDATE ON documents BEGIN
-    INSERT INTO documents_fts(documents_fts, rowid, name, content, collection, title)
-    VALUES ('delete', old.rowid, old.name, old.content, old.collection, old.title);
-    INSERT INTO documents_fts(rowid, name, content, collection, title)
-    VALUES (new.rowid, new.name, new.content, new.collection, new.title);
+    INSERT INTO documents_fts(documents_fts, rowid, content)
+    VALUES ('delete', old.rowid, old.content);
+    INSERT INTO documents_fts(rowid, content)
+    VALUES (new.rowid, new.content);
   END;
 `;
 
@@ -219,21 +220,6 @@ function initializeSchema(database: Database.Database): void {
   database.exec(SCHEMA_DDL);
 }
 
-// Prepare FTS5 query - escape special characters and add prefix matching
-function prepareFtsQuery(query: string): string {
-  const terms = query.trim().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return "";
-
-  return terms
-    .map((term) => {
-      // Escape double quotes
-      const escaped = term.replace(/"/g, '""');
-      // Use prefix matching with *
-      return `"${escaped}"*`;
-    })
-    .join(" ");
-}
-
 export interface SearchResult {
   hits: Array<
     S3FileDocument & {
@@ -282,8 +268,8 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
   const limit = validatePaginationParam(options.limit, DEFAULT_LIMIT, MAX_LIMIT);
   const offset = validatePaginationParam(options.offset, 0, MAX_OFFSET);
 
-  const ftsQuery = prepareFtsQuery(query);
-  if (!ftsQuery) {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
     return {
       hits: [],
       query,
@@ -292,16 +278,26 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     };
   }
 
-  // Count total matches
+  const likePattern = `%${escapeLikePattern(trimmedQuery)}%`;
+
+  const whereClause = `
+    WHERE (
+      d.rowid IN (SELECT rowid FROM documents_fts WHERE content LIKE ? ESCAPE '\\')
+      OR d.name LIKE ? ESCAPE '\\'
+      OR d.title LIKE ? ESCAPE '\\'
+      OR d.collection LIKE ? ESCAPE '\\'
+    )
+  `;
+  const whereParams = [likePattern, likePattern, likePattern, likePattern];
+
   const countStmt = database.prepare(`
     SELECT COUNT(*) as count
-    FROM documents_fts
-    WHERE documents_fts MATCH ?
+    FROM documents d
+    ${whereClause}
   `);
-  const countResult = countStmt.get(ftsQuery) as { count: number };
+  const countResult = countStmt.get(...whereParams) as { count: number };
   const totalHits = countResult.count;
 
-  // Get paginated results with highlighting
   const searchStmt = database.prepare(`
     SELECT
       d.id,
@@ -316,18 +312,14 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
       d.collection,
       d.title,
       d.creation_date as creationDate,
-      d.creation_date_iso as creationDateISO,
-      highlight(documents_fts, 0, '<mark>', '</mark>') as highlighted_name,
-      snippet(documents_fts, 1, '<mark>', '</mark>', '...', 32) as highlighted_content,
-      bm25(documents_fts) as rank
-    FROM documents_fts
-    JOIN documents d ON documents_fts.rowid = d.rowid
-    WHERE documents_fts MATCH ?
-    ORDER BY rank
+      d.creation_date_iso as creationDateISO
+    FROM documents d
+    ${whereClause}
+    ORDER BY d.last_modified DESC
     LIMIT ? OFFSET ?
   `);
 
-  const rows = searchStmt.all(ftsQuery, limit, offset) as Array<{
+  const rows = searchStmt.all(...whereParams, limit, offset) as Array<{
     id: string;
     key: string;
     name: string;
@@ -341,9 +333,6 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     title: string | null;
     creationDate: number | null;
     creationDateISO: string | null;
-    highlighted_name: string;
-    highlighted_content: string;
-    rank: number;
   }>;
 
   const hits = rows.map((row) => ({
@@ -361,8 +350,8 @@ export function search(query: string, options: SearchOptions = {}): SearchResult
     creationDate: row.creationDate,
     creationDateISO: row.creationDateISO,
     _formatted: {
-      name: row.highlighted_name,
-      content: row.highlighted_content,
+      name: highlightMatches(row.name, trimmedQuery),
+      content: highlightMatches(extractSnippet(row.content, trimmedQuery), trimmedQuery),
     },
   }));
 
@@ -610,6 +599,43 @@ export interface BrowseFolderResult {
 // Escape LIKE wildcards for literal matching
 function escapeLikePattern(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+function highlightMatches(text: string, query: string): string {
+  if (!query) return escapeHtml(text);
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(escapedQuery, "gi");
+  const parts: string[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(escapeHtml(text.slice(lastIndex, match.index)));
+    }
+    parts.push(`<mark>${escapeHtml(match[0])}</mark>`);
+    lastIndex = regex.lastIndex;
+    if (match[0].length === 0) {
+      regex.lastIndex++;
+    }
+  }
+  if (lastIndex < text.length) {
+    parts.push(escapeHtml(text.slice(lastIndex)));
+  }
+  return parts.join("");
+}
+
+function extractSnippet(text: string, query: string, contextChars: number = 80): string {
+  if (!query) return text.slice(0, contextChars * 2);
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const matchIndex = lowerText.indexOf(lowerQuery);
+  if (matchIndex === -1) return text.slice(0, contextChars * 2);
+  const start = Math.max(0, matchIndex - contextChars);
+  const end = Math.min(text.length, matchIndex + query.length + contextChars);
+  let snippet = text.slice(start, end);
+  if (start > 0) snippet = "..." + snippet;
+  if (end < text.length) snippet = snippet + "...";
+  return snippet;
 }
 
 // Browse a folder (for /api/app/documents/browse)
