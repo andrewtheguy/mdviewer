@@ -1,43 +1,67 @@
-name: Build Docker Image
+name: Release (Manual)
 
 on:
-  release:
-    types: [created]
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Docker image tag (optional, defaults to timestamp)'
-        required: false
-        type: string
+
+permissions:
+  contents: write
+  packages: write
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  meta:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+  setup:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.tag.outputs.tag }}
+      release_tag: ${{ steps.version.outputs.new }}
+      is_prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - name: Determine tag
-        id: tag
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            echo "tag=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
-          elif [ -n "${{ inputs.tag }}" ]; then
-            echo "tag=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          version=$(node -p "require('./package.json').version")
+          if [ -z "$version" ]; then
+            echo "::error::Could not parse version from package.json"
+            exit 1
+          fi
+          tag="v$version"
+          echo "new=$tag" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Abort if tag already exists
+        run: |
+          if git ls-remote --tags origin "refs/tags/${{ steps.version.outputs.new }}" | grep -q .; then
+            echo "::error::Tag ${{ steps.version.outputs.new }} already exists on remote"
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh release view "${{ steps.version.outputs.new }}" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx true; then
+            echo "Deleting stale draft release ${{ steps.version.outputs.new }}"
+            gh release delete "${{ steps.version.outputs.new }}" --yes
+          fi
+          gh release create "${{ steps.version.outputs.new }}" \
+            --draft \
+            --target "${{ github.sha }}" \
+            --title "Release ${{ steps.version.outputs.new }}" \
+            --generate-notes \
+            ${{ steps.version.outputs.prerelease == 'true' && '--prerelease' || '' }}
+
   build:
-    needs: meta
+    needs: setup
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: read
-      packages: write
     strategy:
       matrix:
         include:
@@ -47,10 +71,8 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
             platform: linux/arm64
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -69,17 +91,14 @@ jobs:
           push: true
           platforms: ${{ matrix.platform }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.meta.outputs.tag }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.release_tag }}-${{ matrix.arch }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.arch }}
           cache-from: type=gha,scope=buildkit-${{ matrix.arch }}
           cache-to: type=gha,scope=buildkit-${{ matrix.arch }},mode=max
 
   manifest:
-    needs: [meta, build]
+    needs: [setup, build]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - name: Log in to Container Registry
         uses: docker/login-action@v3
@@ -91,11 +110,21 @@ jobs:
       - name: Create multi-arch manifest
         run: |
           docker buildx imagetools create \
-            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.meta.outputs.tag }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.meta.outputs.tag }}-amd64 \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.meta.outputs.tag }}-arm64
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.release_tag }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.release_tag }}-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.setup.outputs.release_tag }}-arm64
 
           docker buildx imagetools create \
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+
+  publish-release:
+    needs: [setup, manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release (remove draft, creates the tag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "${{ needs.setup.outputs.release_tag }}" --draft=false
